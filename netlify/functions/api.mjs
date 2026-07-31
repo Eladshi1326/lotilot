@@ -7,6 +7,7 @@
 // הפיס חוסם שרתי ענן, לכן ההיסטוריה מגיעה מה־seed הארוז; מנסים בכל זאת לרענן חי.
 
 import { GAMES, GAME_KEYS, isValidGame, parseGameCsv } from '../../server/games.mjs';
+import { loadLive, mergeDraws, buildNext } from '../../server/live-merge.mjs';
 import seedAll from '../../server/data/all-history.seed.mjs';
 
 const NEXT_URL = 'https://www.pais.co.il/include/getNextLotteryDate.ashx?type=';
@@ -77,39 +78,73 @@ async function fetchWithTimeout(url, ms) {
   }
 }
 
+function decodeBuf(buf) {
+  // דפי האתר UTF-8, קבצי התוצאות windows-1255 — מזהים לבד
+  try {
+    return new TextDecoder('utf-8', { fatal: true }).decode(buf);
+  } catch {
+    try {
+      return new TextDecoder('windows-1255').decode(buf);
+    } catch {
+      return Buffer.from(buf).toString('latin1');
+    }
+  }
+}
+
 async function handleDraws(gameKey) {
   const game = GAMES[gameKey];
+  const live = await loadLive();
+  const liveDraws = live && live.latest && live.latest[gameKey] ? live.latest[gameKey].draws : null;
+
+  // 1. הכי טוב: קובץ התוצאות המלא ישירות מהפיס
   try {
-    const res = await fetchWithTimeout(game.csvUrl, 3500);
+    const res = await fetchWithTimeout(game.csvUrl, 4000);
     if (!res.ok) throw new Error('HTTP ' + res.status);
-    const buf = await res.arrayBuffer();
-    let text;
-    try {
-      text = new TextDecoder('windows-1255').decode(buf);
-    } catch {
-      text = Buffer.from(buf).toString('latin1');
-    }
-    const draws = parseGameCsv(gameKey, text).slice(0, game.historyCap);
+    const draws = parseGameCsv(gameKey, decodeBuf(await res.arrayBuffer())).slice(0, game.historyCap);
     if (draws.length === 0) throw new Error('empty csv');
     return json(
-      { game: gameKey, updatedAt: new Date().toISOString(), count: draws.length, draws },
+      { game: gameKey, updatedAt: new Date().toISOString(), source: 'live', count: draws.length, draws },
       200,
       {
         'cache-control': 'public, max-age=0, must-revalidate',
-        'netlify-cdn-cache-control': 'public, s-maxage=18000, stale-while-revalidate=86400'
+        'netlify-cdn-cache-control': 'public, s-maxage=600, stale-while-revalidate=86400'
       }
     );
   } catch (err) {
-    return json({ ...seedFor(gameKey), note: 'bundled history (' + err.message + ')' }, 200, {
-      'netlify-cdn-cache-control': 'public, s-maxage=18000, stale-while-revalidate=86400'
-    });
+    // 2. ההיסטוריה הארוזה + ההגרלות החדשות שהסוכן הביא
+    const seed = seedFor(gameKey);
+    const draws = mergeDraws(seed.draws, liveDraws).slice(0, game.historyCap);
+    return json(
+      {
+        game: gameKey,
+        updatedAt: (live && live.updatedAt) || seed.updatedAt,
+        source: liveDraws ? 'bot' : 'bundled',
+        count: draws.length,
+        draws,
+        note: 'pais direct failed: ' + err.message
+      },
+      200,
+      { 'netlify-cdn-cache-control': 'public, s-maxage=300, stale-while-revalidate=86400' }
+    );
   }
 }
 
 async function handleNext() {
   const bundled = (seedAll && seedAll.next) || {};
-  const out = { ...bundled };
-  // מנסים לרענן חי (אם הפיס לא חוסם) — כל משחק עם timeout קצרצר
+  const live = await loadLive();
+
+  // מספר ההגרלה האחרונה בכל משחק — לחישוב מספר ההגרלה הבאה כשהפיס לא מספק אותו
+  const latestIdByGame = {};
+  for (const key of GAME_KEYS) {
+    const fromLive = live && live.latest && live.latest[key] && live.latest[key].draws && live.latest[key].draws[0];
+    const fromSeed = seedFor(key).draws[0];
+    const id = (fromLive && fromLive.id) || (fromSeed && fromSeed.id);
+    if (Number.isFinite(id)) latestIdByGame[key] = id;
+  }
+
+  const out = buildNext(bundled, live, latestIdByGame);
+
+  // מנסים גם ישירות מהפיס — הכי טרי, אם השרת לא חסום
   await Promise.all(
     GAME_KEYS.map(async (key) => {
       try {
@@ -119,19 +154,24 @@ async function handleNext() {
         const it = Array.isArray(arr) ? arr[0] : null;
         if (it && it.displayDate) {
           out[key] = {
+            ...(out[key] || {}),
             date: it.displayDate,
             time: it.displayTime || null,
-            drawNumber: it.LotteryNumber || null,
-            firstPrize: it.firstPrize || null,
-            secondPrize: it.secondPrize || null,
+            firstPrize: it.firstPrize || (out[key] && out[key].firstPrize) || null,
+            secondPrize: it.secondPrize || (out[key] && out[key].secondPrize) || null,
             fetchedAt: new Date().toISOString()
           };
+          if (it.LotteryNumber) {
+            out[key].drawNumber = it.LotteryNumber;
+            out[key].estimated = false;
+          }
         }
-      } catch { /* נשארים עם הארוז */ }
+      } catch { /* נשארים עם מה שיש */ }
     })
   );
+
   return json(out, 200, {
-    'netlify-cdn-cache-control': 'public, s-maxage=3600, stale-while-revalidate=86400'
+    'netlify-cdn-cache-control': 'public, s-maxage=120, stale-while-revalidate=3600'
   });
 }
 

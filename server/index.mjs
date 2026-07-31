@@ -4,6 +4,7 @@ import { readFileSync, writeFileSync, renameSync, existsSync, mkdirSync } from '
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
 import { GAMES, GAME_KEYS, isValidGame } from './games.mjs';
+import { loadLive, mergeDraws, buildNext } from './live-merge.mjs';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const DATA_DIR = join(__dirname, 'data');
@@ -94,23 +95,43 @@ app.post('/api/pick', (req, res) => {
   res.status(201).json({ pick: publicPick(pick) });
 });
 
-// היסטוריית הגרלות אמיתית לפי משחק
-app.get('/api/draws', (req, res) => {
+function readJson(file, fallback) {
+  try {
+    if (existsSync(file)) return JSON.parse(readFileSync(file, 'utf8'));
+  } catch { /* פגום */ }
+  return fallback;
+}
+
+// היסטוריית הגרלות אמיתית לפי משחק (כולל מה שהסוכן הביא)
+app.get('/api/draws', async (req, res) => {
   const game = isValidGame(req.query.game) ? req.query.game : 'lotto';
-  const file = join(DATA_DIR, 'history-' + game + '.json');
-  if (!existsSync(file)) {
-    return res.json({ game, updatedAt: null, count: 0, draws: [] });
-  }
+  const base = readJson(join(DATA_DIR, 'history-' + game + '.json'), { game, updatedAt: null, count: 0, draws: [] });
+  const live = await loadLive();
+  const liveDraws = live && live.latest && live.latest[game] ? live.latest[game].draws : null;
+  const draws = mergeDraws(base.draws, liveDraws).slice(0, GAMES[game].historyCap);
   res.setHeader('Cache-Control', 'no-cache');
-  res.sendFile(file);
+  res.json({
+    game,
+    updatedAt: (live && live.updatedAt) || base.updatedAt,
+    source: liveDraws ? 'bot' : 'local',
+    count: draws.length,
+    draws
+  });
 });
 
-// פרטי ההגרלה הבאה (מה שנשמר בעדכון האחרון)
-app.get('/api/next', (req, res) => {
-  const file = join(DATA_DIR, 'next-info.json');
-  if (!existsSync(file)) return res.json({});
+// פרטי ההגרלות הבאות
+app.get('/api/next', async (req, res) => {
+  const bundled = readJson(join(DATA_DIR, 'next-info.json'), {});
+  const live = await loadLive();
+  const latestIdByGame = {};
+  for (const key of GAME_KEYS) {
+    const base = readJson(join(DATA_DIR, 'history-' + key + '.json'), { draws: [] });
+    const fromLive = live && live.latest && live.latest[key] && live.latest[key].draws && live.latest[key].draws[0];
+    const id = (fromLive && fromLive.id) || (base.draws[0] && base.draws[0].id);
+    if (Number.isFinite(id)) latestIdByGame[key] = id;
+  }
   res.setHeader('Cache-Control', 'no-cache');
-  res.sendFile(file);
+  res.json(buildNext(bundled, live, latestIdByGame));
 });
 
 // הגשת האתר הבנוי (production) אם קיים

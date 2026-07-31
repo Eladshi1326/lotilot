@@ -2,10 +2,11 @@ import React, { useCallback, useEffect, useRef, useState } from 'react';
 import PickCard from './components/PickCard.jsx';
 import Board from './components/Board.jsx';
 import History from './components/History.jsx';
-import Countdown from './components/Countdown.jsx';
+import Countdown, { MiniTimer } from './components/Countdown.jsx';
 import { GAME_KEYS, GAMES_UI } from './games.js';
 
 const POLL_MS = 5000;
+const NEXT_POLL_MS = 120000; // רענון מועדי ההגרלות כל שתי דקות
 
 function getClientId() {
   let id = localStorage.getItem('lotilot_client_id');
@@ -26,10 +27,25 @@ export default function App() {
   const [counts, setCounts] = useState({});
   const [myPicks, setMyPicks] = useState({});
   const [nextInfo, setNextInfo] = useState({});
+  const [now, setNow] = useState(() => Date.now());
   const [loading, setLoading] = useState(true);
   const clientIdRef = useRef(getClientId());
   const gameRef = useRef(game);
   gameRef.current = game;
+
+  // שעון אחד משותף לכל הטיימרים באתר
+  useEffect(() => {
+    const t = setInterval(() => setNow(Date.now()), 1000);
+    return () => clearInterval(t);
+  }, []);
+
+  const refreshNext = useCallback(async () => {
+    try {
+      const res = await fetch('/api/next');
+      const data = await res.json();
+      if (res.ok && data && typeof data === 'object') setNextInfo(data);
+    } catch { /* ננסה שוב בסבב הבא */ }
+  }, []);
 
   const refreshPicks = useCallback(async (forGame) => {
     const g = forGame || gameRef.current;
@@ -52,21 +68,18 @@ export default function App() {
         const data = await res.json();
         if (res.ok && data && data.picks && typeof data.picks === 'object') setMyPicks(data.picks);
       } catch { /* לא נורא */ }
-      try {
-        const res = await fetch('/api/next');
-        const data = await res.json();
-        if (res.ok && data && typeof data === 'object') setNextInfo(data);
-      } catch { /* לא נורא */ }
+      await refreshNext();
       await refreshPicks();
       setLoading(false);
     })();
-  }, [refreshPicks]);
+  }, [refreshPicks, refreshNext]);
 
-  // ריענון חי של הלוח
+  // ריענון חי של הלוח ושל מועדי ההגרלות
   useEffect(() => {
     const timer = setInterval(() => refreshPicks(), POLL_MS);
-    return () => clearInterval(timer);
-  }, [refreshPicks]);
+    const nextTimer = setInterval(() => refreshNext(), NEXT_POLL_MS);
+    return () => { clearInterval(timer); clearInterval(nextTimer); };
+  }, [refreshPicks, refreshNext]);
 
   // מעבר משחק — טעינה מיידית
   useEffect(() => {
@@ -110,17 +123,18 @@ export default function App() {
           >
             <span className="game-emoji">{GAMES_UI[k].emoji}</span>
             <span className="game-name">{GAMES_UI[k].name}</span>
+            <MiniTimer game={k} info={nextInfo[k]} now={now} />
             <span className="game-count">
               {tab === 'experiment'
-                ? (counts[k] || 0) + ' כרטיסים'
-                : GAMES_UI[k].schedule.split(' ').slice(0, 3).join(' ')}
+                ? (counts[k] === 1 ? 'כרטיס אחד' : (counts[k] || 0) + ' כרטיסים')
+                : 'ההגרלה הבאה'}
             </span>
             {myPicks[k] ? <span className="game-check">✓</span> : null}
           </button>
         ))}
       </nav>
 
-      <Countdown game={game} nextInfo={nextInfo[game]} />
+      <Countdown game={game} nextInfo={nextInfo[game]} now={now} />
 
       {tab === 'experiment' ? (
         <main>

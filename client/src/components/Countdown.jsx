@@ -1,32 +1,50 @@
-import React, { useEffect, useState } from 'react';
+import React from 'react';
 import { GAMES_UI, computeNextLottoClose, parseNextDate, formatMoney } from '../games.js';
 
-function pad(n) {
-  return String(n).padStart(2, '0');
-}
+const pad = (n) => String(n).padStart(2, '0');
 
-export default function Countdown({ game, nextInfo }) {
-  const [now, setNow] = useState(() => Date.now());
-
-  useEffect(() => {
-    const t = setInterval(() => setNow(Date.now()), 1000);
-    return () => clearInterval(t);
-  }, []);
-
-  const info = nextInfo || null;
+// מחשב את מועד היעד: קודם מה שהתקבל מהפיס, ואם עבר/חסר — חישוב עצמאי (לוטו)
+export function resolveTarget(game, info, now) {
   let target = info ? parseNextDate(info.date, info.time) : null;
-  let usingComputed = false;
-
-  // אם אין מידע או שהמועד עבר — ללוטו אפשר לחשב לבד (שלישי/שבת 22:45)
+  let estimated = false;
   if ((!target || target.getTime() <= now) && game === 'lotto') {
     const computed = computeNextLottoClose(new Date(now));
     if (computed) {
-      if (!target || computed > target) usingComputed = !target || target.getTime() <= now;
-      if (!target || target.getTime() <= now) target = computed;
+      target = computed;
+      estimated = true;
     }
   }
+  if (!target || target.getTime() <= now) return { target: null, estimated };
+  return { target, estimated };
+}
 
-  if (!target || target.getTime() <= now) {
+export function splitDiff(ms) {
+  let d = Math.floor(ms / 1000);
+  const days = Math.floor(d / 86400); d -= days * 86400;
+  const hours = Math.floor(d / 3600); d -= hours * 3600;
+  const mins = Math.floor(d / 60);
+  return { days, hours, mins, secs: d - mins * 60 };
+}
+
+// שעון קטן לטאב של כל משחק
+export function MiniTimer({ game, info, now }) {
+  const { target } = resolveTarget(game, info, now);
+  if (!target) return <span className="mini-timer soon">בקרוב</span>;
+  const { days, hours, mins, secs } = splitDiff(target.getTime() - now);
+  return (
+    <span className="mini-timer" dir="ltr">
+      {/* bdi מבודד את סימון הימים בעברית כדי שהשעון לא יתהפך */}
+      {days > 0 ? <bdi className="mt-days">{days} {days === 1 ? 'יום' : 'ימים'}</bdi> : null}
+      <span className="mt-clock">{pad(hours)}:{pad(mins)}:{pad(secs)}</span>
+    </span>
+  );
+}
+
+export default function Countdown({ game, nextInfo, now }) {
+  const info = nextInfo || null;
+  const { target, estimated } = resolveTarget(game, info, now);
+
+  if (!target) {
     return (
       <div className="countdown">
         <span className="cd-label">{GAMES_UI[game].schedule}</span>
@@ -34,19 +52,23 @@ export default function Countdown({ game, nextInfo }) {
     );
   }
 
-  let diff = Math.floor((target.getTime() - now) / 1000);
-  const days = Math.floor(diff / 86400); diff -= days * 86400;
-  const hours = Math.floor(diff / 3600); diff -= hours * 3600;
-  const mins = Math.floor(diff / 60);
-  const secs = diff - mins * 60;
-
-  const drawNumber = !usingComputed && info && info.drawNumber ? info.drawNumber : null;
-  const prize = game === 'lotto' && !usingComputed && info ? formatMoney(info.firstPrize) : null;
+  const { days, hours, mins, secs } = splitDiff(target.getTime() - now);
+  const drawNumber = !estimated && info && info.drawNumber ? info.drawNumber : null;
+  const approx = info && info.estimated;
+  const prize = !estimated && info ? formatMoney(info.firstPrize) : null;
 
   return (
-    <div className="countdown">
+    <div className={'countdown g-' + game}>
       <span className="cd-label">
-        סגירת המכירה {drawNumber ? 'להגרלה מס׳ ' + drawNumber : 'להגרלה הבאה'} בעוד:
+        {GAMES_UI[game].emoji} סגירת המכירה{' '}
+        {drawNumber ? (
+          <>
+            להגרלה מס׳ <b className="cd-draw">{approx ? '~' : ''}{drawNumber}</b>
+          </>
+        ) : (
+          'להגרלה הבאה'
+        )}{' '}
+        בעוד:
       </span>
       <span className="cd-clock" dir="ltr">
         <span className="cd-unit"><b>{pad(days)}</b><small>ימים</small></span>

@@ -1,0 +1,46 @@
+# 🤖 הסוכן של לוטי לוט — רץ לבד כל 10 דקות ומביא תוצאות ומועדים מהפיס.
+# אפשר גם להריץ ידנית: בגיטהאב → Actions → הסוכן של לוטי לוט → Run workflow
+
+name: הסוכן של לוטי לוט
+
+on:
+  schedule:
+    - cron: '*/10 * * * *'
+  workflow_dispatch: {}
+
+permissions:
+  contents: write
+
+concurrency:
+  group: lotilot-updater
+  cancel-in-progress: false
+
+jobs:
+  update:
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - name: משיכת הקוד
+        uses: actions/checkout@v4
+
+      - name: התקנת Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: שליפת נתונים מהפיס
+        run: node scripts/fetch-live.mjs
+
+      - name: שמירה אם יש עדכון
+        run: |
+          if [ -n "$(git status --porcelain live-data.json)" ]; then
+            git config user.name "lotilot-bot"
+            git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+            git add live-data.json
+            # [skip ci] — האתר קורא את הקובץ הזה בזמן אמת, אז אין צורך בבנייה מחדש
+            git commit -m "🤖 עדכון תוצאות אוטומטי [skip ci]"
+            git push
+            echo "✓ הנתונים עודכנו"
+          else
+            echo "אין שינוי — לא נדרש עדכון"
+          fi
