@@ -1,93 +1,148 @@
-// עדכון היסטוריית הגרלות הלוטו מאתר מפעל הפיס
-// רץ אוטומטית לפני כל הפעלה של האתר (npm run dev / npm start),
-// ואפשר גם ידנית: npm run update-data
+// עדכון נתוני כל המשחקים מאתר מפעל הפיס: לוטו, צ'אנס, 777, 123 + פרטי ההגרלה הבאה
+// רץ אוטומטית לפני כל הפעלה (npm run dev / npm start) וגם לפני כל דחיפה לגיט.
+// בלי אינטרנט — נשארים עם הנתונים הקיימים.
 //
-// שימוש מקומי לבדיקה: node scripts/update-data.mjs --from-file path/to/file.csv
+// בדיקה מקומית עם קובץ: node scripts/update-data.mjs --from-file lotto=path.csv
 
 import { readFileSync, writeFileSync, existsSync, mkdirSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
-import { parseLottoCsv } from '../server/parse-lotto.mjs';
+import { GAMES, GAME_KEYS, parseGameCsv } from '../server/games.mjs';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const DATA_DIR = join(__dirname, '..', 'server', 'data');
-const OUT_FILE = join(DATA_DIR, 'lotto-history.json');
-const SEED_FILE = join(DATA_DIR, 'lotto-history.seed.mjs'); // עותק שנארז לתוך הפונקציה בענן
-const CSV_URL = 'https://www.pais.co.il/lotto/lotto_resultsDownload.aspx';
-const TIMEOUT_MS = 20000;
+const SEED_FILE = join(DATA_DIR, 'all-history.seed.mjs'); // נארז לתוך פונקציית הענן
+const NEXT_URL = 'https://www.pais.co.il/include/getNextLotteryDate.ashx?type=';
+const TIMEOUT_MS = 25000;
+const UA =
+  'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0 Safari/537.36';
 
-function decodeWin1255(buf) {
-  try {
-    return new TextDecoder('windows-1255').decode(buf);
-  } catch {
-    // רק שורת הכותרת בעברית — שאר הנתונים ספרות בלבד, אז latin1 מספיק
-    return Buffer.from(buf).toString('latin1');
-  }
-}
+const historyFile = (key) => join(DATA_DIR, 'history-' + key + '.json');
 
-async function fetchCsv() {
+async function fetchWithTimeout(url, ms = TIMEOUT_MS) {
   const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), TIMEOUT_MS);
+  const timer = setTimeout(() => controller.abort(), ms);
   try {
-    const res = await fetch(CSV_URL, {
+    const res = await fetch(url, {
       signal: controller.signal,
-      headers: {
-        'User-Agent':
-          'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0 Safari/537.36',
-        Accept: 'text/csv,application/text,*/*'
-      }
+      headers: { 'User-Agent': UA, Accept: 'text/csv,application/text,application/json,*/*' }
     });
     if (!res.ok) throw new Error('HTTP ' + res.status);
-    return decodeWin1255(await res.arrayBuffer());
+    return res;
   } finally {
     clearTimeout(timer);
   }
 }
 
-async function main() {
-  mkdirSync(DATA_DIR, { recursive: true });
+function decodeWin1255(buf) {
+  try {
+    return new TextDecoder('windows-1255').decode(buf);
+  } catch {
+    return Buffer.from(buf).toString('latin1'); // רק הכותרת בעברית — הנתונים ספרות/אותיות
+  }
+}
 
-  const fromFileIdx = process.argv.indexOf('--from-file');
+function readExisting(key) {
+  try {
+    if (existsSync(historyFile(key))) return JSON.parse(readFileSync(historyFile(key), 'utf8'));
+  } catch { /* קובץ פגום — נתחיל נקי */ }
+  return { updatedAt: null, count: 0, draws: [] };
+}
+
+const OFFLINE = process.env.LOTILOT_OFFLINE === '1';
+
+async function updateGame(key, fromFile) {
+  const game = GAMES[key];
   let csvText = null;
-  let source = CSV_URL;
-
-  if (fromFileIdx > -1 && process.argv[fromFileIdx + 1]) {
-    source = process.argv[fromFileIdx + 1];
-    csvText = readFileSync(source, 'utf8');
+  if (fromFile) {
+    csvText = readFileSync(fromFile, 'utf8');
+  } else if (OFFLINE) {
+    return readExisting(key);
   } else {
     try {
-      console.log('[update-data] מוריד את היסטוריית ההגרלות ממפעל הפיס...');
-      csvText = await fetchCsv();
+      const res = await fetchWithTimeout(game.csvUrl);
+      csvText = decodeWin1255(await res.arrayBuffer());
     } catch (err) {
-      console.warn('[update-data] לא הצלחתי להוריד נתונים (' + err.message + ')');
-      if (existsSync(OUT_FILE)) {
-        console.warn('[update-data] ממשיך עם הנתונים הקיימים.');
-        return;
-      }
-      console.warn('[update-data] אין קובץ נתונים קיים — האתר יעבוד בלי היסטוריה בינתיים.');
-      return;
+      console.warn('[update-data] ' + game.name + ': לא הצלחתי להוריד (' + err.message + ') — נשארים עם הקיים');
+      return readExisting(key);
     }
   }
 
-  const draws = parseLottoCsv(csvText);
+  const draws = parseGameCsv(key, csvText).slice(0, game.historyCap);
   if (draws.length === 0) {
-    console.warn('[update-data] הקובץ שהתקבל ריק או בפורמט לא צפוי — לא נוגע בנתונים הקיימים.');
-    return;
+    console.warn('[update-data] ' + game.name + ': קובץ ריק/לא צפוי — נשארים עם הקיים');
+    return readExisting(key);
   }
 
   const payload = {
+    game: key,
     updatedAt: new Date().toISOString(),
-    source,
     count: draws.length,
     draws
   };
-  writeFileSync(OUT_FILE, JSON.stringify(payload), 'utf8');
-  // גרסת מודול — נארזת לתוך פונקציית הענן, כדי שההיסטוריה תמיד תהיה זמינה גם כשהפיס חוסם שרתים
-  writeFileSync(SEED_FILE, 'export default ' + JSON.stringify(payload) + ';\n', 'utf8');
-  console.log('[update-data] נשמרו ' + draws.length + ' הגרלות (עדכנית: ' + draws[0].id + ' מתאריך ' + draws[0].date + ')');
+  writeFileSync(historyFile(key), JSON.stringify(payload), 'utf8');
+  console.log('[update-data] ' + game.name + ': ' + draws.length + ' הגרלות (עדכנית: ' + draws[0].id + ' מ־' + draws[0].date + ')');
+  return payload;
+}
+
+async function fetchNextInfo() {
+  const next = {};
+  if (OFFLINE) {
+    try {
+      return JSON.parse(readFileSync(join(DATA_DIR, 'next-info.json'), 'utf8'));
+    } catch { return {}; }
+  }
+  for (const key of GAME_KEYS) {
+    try {
+      const res = await fetchWithTimeout(NEXT_URL + GAMES[key].nextType, 8000);
+      const arr = await res.json();
+      const it = Array.isArray(arr) ? arr[0] : null;
+      if (it && it.displayDate) {
+        next[key] = {
+          date: it.displayDate,
+          time: it.displayTime || null,
+          drawNumber: it.LotteryNumber || null,
+          firstPrize: it.firstPrize || null,
+          secondPrize: it.secondPrize || null,
+          fetchedAt: new Date().toISOString()
+        };
+      }
+    } catch {
+      /* אין — הלקוח יחשב לבד ללוטו */
+    }
+  }
+  return next;
+}
+
+async function main() {
+  mkdirSync(DATA_DIR, { recursive: true });
+
+  // תמיכה ב---from-file game=path לבדיקה מקומית
+  const fromFiles = {};
+  const ffIdx = process.argv.indexOf('--from-file');
+  if (ffIdx > -1) {
+    for (const arg of process.argv.slice(ffIdx + 1)) {
+      const [g, p] = arg.split('=');
+      if (g && p) fromFiles[g] = p;
+    }
+  }
+
+  const all = {};
+  for (const key of GAME_KEYS) {
+    all[key] = await updateGame(key, fromFiles[key]);
+  }
+  const next = await fetchNextInfo();
+  if (Object.keys(next).length) {
+    console.log('[update-data] פרטי הגרלות באות עודכנו (' + Object.keys(next).join(', ') + ')');
+  }
+
+  // seed משולב שנארז לפונקציית הענן — הפיס חוסם שרתי ענן, אז זה מקור הנתונים שם
+  const seed = { generatedAt: new Date().toISOString(), next, games: all };
+  writeFileSync(SEED_FILE, 'export default ' + JSON.stringify(seed) + ';\n', 'utf8');
+  writeFileSync(join(DATA_DIR, 'next-info.json'), JSON.stringify(next), 'utf8');
 }
 
 main().catch((err) => {
   console.warn('[update-data] שגיאה לא צפויה: ' + err.message);
-  process.exitCode = 0; // לא מפיל את ההפעלה של האתר
+  process.exitCode = 0; // לעולם לא מפיל את ההפעלה
 });

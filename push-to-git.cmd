@@ -29,6 +29,12 @@ if errorlevel 1 (
   git remote add origin https://github.com/Eladshi1326/lotilot.git
 )
 
+where node >nul 2>nul
+if not errorlevel 1 (
+  echo  [Loti Lot] Refreshing lottery data before upload...
+  node scripts\update-data.mjs
+)
+
 echo  [Loti Lot] Saving changes...
 git add -A
 git commit -m "Update site - %date% %time%"

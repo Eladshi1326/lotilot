@@ -1,34 +1,46 @@
 import React, { useEffect, useState } from 'react';
+import { GAMES_UI, SUITS_UI } from '../games.js';
+import { PickView } from './GamePieces.jsx';
 
-let cache = null; // נטען פעם אחת לכל ביקור באתר
+const cache = {}; // לכל משחק — נטען פעם אחת לביקור
 
 const PAGE = 50;
 
-export default function History() {
-  const [data, setData] = useState(cache);
+export default function History({ game }) {
+  const [data, setData] = useState(cache[game] || null);
   const [failed, setFailed] = useState(false);
   const [shown, setShown] = useState(PAGE);
   const [query, setQuery] = useState('');
 
   useEffect(() => {
-    if (cache) return;
+    setShown(PAGE);
+    setQuery('');
+    setFailed(false);
+    setData(cache[game] || null);
+    if (cache[game]) return;
+    let alive = true;
     (async () => {
       try {
-        const res = await fetch('/api/draws');
-        cache = await res.json();
-        setData(cache);
+        const res = await fetch('/api/draws?game=' + encodeURIComponent(game));
+        const d = await res.json();
+        if (!res.ok || !d || !Array.isArray(d.draws)) throw new Error('bad data');
+        cache[game] = d;
+        if (alive) setData(d);
       } catch {
-        setFailed(true);
+        if (alive) setFailed(true);
       }
     })();
-  }, []);
+    return () => { alive = false; };
+  }, [game]);
+
+  const ui = GAMES_UI[game];
 
   if (failed) return <p className="board-empty">לא הצלחתי לטעון את ההיסטוריה כרגע 😕</p>;
-  if (!data) return <p className="board-empty">טוען את היסטוריית ההגרלות...</p>;
+  if (!data) return <p className="board-empty">טוען את היסטוריית ה{ui.name}...</p>;
   if (!data.draws || data.draws.length === 0) {
     return (
       <p className="board-empty">
-        אין עדיין נתוני הגרלות — הם יורדים אוטומטית מהאתר של מפעל הפיס בהפעלה הבאה עם חיבור לאינטרנט.
+        אין עדיין נתוני {ui.name} — הם יורדים אוטומטית מהאתר של מפעל הפיס בעדכון הבא.
       </p>
     );
   }
@@ -42,14 +54,10 @@ export default function History() {
   return (
     <section className="history-section">
       <div className="latest-draw">
-        <h2>ההגרלה האחרונה — מס' {latest.id}</h2>
+        <h2>הגרלת {ui.name} האחרונה — מס' {latest.id}</h2>
         <p className="latest-date">{latest.date}</p>
-        <div className="balls-row revealed">
-          {latest.numbers.map((n, i) => (
-            <span className="ball" key={i} style={{ animationDelay: (i * 0.08) + 's' }}>{n}</span>
-          ))}
-          <span className="ball strong" style={{ animationDelay: '0.48s' }}>{latest.strong}</span>
-        </div>
+        <PickView game={game} numbers={latest.numbers} strong={latest.strong} revealed={true} />
+        {game === '777' ? <p className="ticket-note">אלה 17 המספרים שהוגרלו — שחקן מסמן 7 ובודק כמה מהם פגעו</p> : null}
       </div>
 
       <div className="history-controls">
@@ -69,9 +77,15 @@ export default function History() {
             <tr>
               <th>הגרלה</th>
               <th>תאריך</th>
-              <th>המספרים</th>
-              <th>חזק</th>
-              <th>זוכים</th>
+              {game === 'chance'
+                ? SUITS_UI.map((s) => (
+                    <th key={s.key} className={s.red ? 'suit-red' : ''}>{s.symbol} {s.name}</th>
+                  ))
+                : game === '123'
+                  ? [<th key="n">המספר</th>, <th key="p">סך הפרסים</th>]
+                  : game === '777'
+                    ? [<th key="n">17 המספרים שהוגרלו</th>, <th key="w">זוכי פרס ראשון</th>]
+                    : [<th key="n">המספרים</th>, <th key="s">חזק</th>, <th key="w">זוכים</th>]}
             </tr>
           </thead>
           <tbody>
@@ -79,9 +93,27 @@ export default function History() {
               <tr key={d.id + '-' + d.date}>
                 <td className="td-id">{d.id}</td>
                 <td>{d.date}</td>
-                <td className="td-nums">{d.numbers.join(' · ')}</td>
-                <td className="td-strong">{d.strong ?? '—'}</td>
-                <td>{d.winners == null ? '—' : d.winners}</td>
+                {game === 'chance' ? (
+                  d.numbers.map((c, i) => (
+                    <td key={i} className={'td-card' + (SUITS_UI[i].red ? ' suit-red' : '')}>{c}</td>
+                  ))
+                ) : game === '123' ? (
+                  <>
+                    <td className="td-nums big">{d.numbers.join(' ')}</td>
+                    <td>{d.totalPrizes == null ? '—' : d.totalPrizes.toLocaleString('he-IL') + ' ₪'}</td>
+                  </>
+                ) : game === '777' ? (
+                  <>
+                    <td className="td-nums small">{d.numbers.join(' · ')}</td>
+                    <td>{d.winners == null ? '—' : d.winners}</td>
+                  </>
+                ) : (
+                  <>
+                    <td className="td-nums">{d.numbers.join(' · ')}</td>
+                    <td className="td-strong">{d.strong ?? '—'}</td>
+                    <td>{d.winners == null ? '—' : d.winners}</td>
+                  </>
+                )}
               </tr>
             ))}
           </tbody>
@@ -97,7 +129,7 @@ export default function History() {
       <p className="history-src">
         מקור הנתונים: מפעל הפיס
         {data.updatedAt ? ' · עודכן לאחרונה: ' + new Date(data.updatedAt).toLocaleString('he-IL') : ''}
-        {' '}· הנתונים מתעדכנים אוטומטית בכל הפעלה של האתר
+        {' '}· {ui.schedule}
       </p>
     </section>
   );

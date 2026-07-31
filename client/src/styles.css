@@ -418,7 +418,213 @@ body {
   padding-top: 18px;
 }
 
+/* ---------- בחירת משחק ---------- */
+.game-tabs {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 10px;
+  max-width: 720px;
+  margin: 0 auto 18px;
+}
+
+.game-btn {
+  position: relative;
+  border: 2px solid transparent;
+  background: var(--card);
+  border-radius: 16px;
+  padding: 12px 8px 10px;
+  font-family: inherit;
+  cursor: pointer;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+  box-shadow: 0 3px 10px rgba(0,0,0,.07);
+  transition: transform .12s ease, border-color .12s ease;
+}
+
+.game-btn:hover { transform: translateY(-2px); }
+
+.game-emoji { font-size: 26px; }
+
+.game-name { font-weight: 900; font-size: 16px; color: var(--ink); }
+
+.game-count { font-size: 11.5px; color: var(--muted); }
+
+.game-btn.active.g-lotto { border-color: var(--red); background: #fff5f7; }
+.game-btn.active.g-chance { border-color: #7b2ff2; background: #f8f4ff; }
+.game-btn.active.g-777 { border-color: #ff7a00; background: #fff8f0; }
+.game-btn.active.g-123 { border-color: #00a389; background: #f0fbf8; }
+
+.game-check {
+  position: absolute;
+  top: -7px;
+  inset-inline-start: -7px;
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  background: #22c55e;
+  color: #fff;
+  font-weight: 900;
+  font-size: 13px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  box-shadow: 0 2px 6px rgba(0,0,0,.25);
+}
+
+/* ---------- ספירה לאחור ---------- */
+.countdown {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-wrap: wrap;
+  gap: 12px;
+  background: linear-gradient(120deg, #1c2333, #2c3a5a);
+  color: #fff;
+  border-radius: 14px;
+  padding: 12px 18px;
+  margin: 0 auto 24px;
+  max-width: 720px;
+  box-shadow: 0 6px 18px rgba(28,35,51,.3);
+}
+
+.cd-label { font-weight: 700; font-size: 15px; }
+
+.cd-clock { display: inline-flex; align-items: center; gap: 6px; }
+
+.cd-unit {
+  display: inline-flex;
+  flex-direction: column;
+  align-items: center;
+  background: rgba(255,255,255,.12);
+  border-radius: 10px;
+  padding: 4px 10px;
+  min-width: 52px;
+}
+
+.cd-unit b { font-size: 20px; font-variant-numeric: tabular-nums; }
+
+.cd-unit small { font-size: 10.5px; opacity: .8; }
+
+.cd-sep { font-weight: 900; opacity: .6; }
+
+.cd-prize { font-weight: 800; font-size: 15px; color: var(--yellow); }
+
+.fill-progress {
+  text-align: center;
+  font-weight: 700;
+  color: var(--blue);
+  margin: 0 0 14px;
+}
+
+/* ---------- כרטיסי ראש לפי משחק ---------- */
+.ticket.g-chance .ticket-head { background: linear-gradient(120deg, #7b2ff2, #5a1bc4); }
+.ticket.g-777 .ticket-head { background: linear-gradient(120deg, #ff7a00, #e05e00); }
+.ticket.g-123 .ticket-head { background: linear-gradient(120deg, #00a389, #007a67); }
+.ticket.g-chance.filled { box-shadow: 0 14px 40px rgba(123,47,242,.18), 0 0 0 3px #7b2ff2 inset; }
+.ticket.g-777.filled { box-shadow: 0 14px 40px rgba(255,122,0,.18), 0 0 0 3px #ff7a00 inset; }
+.ticket.g-123.filled { box-shadow: 0 14px 40px rgba(0,163,137,.18), 0 0 0 3px #00a389 inset; }
+
+.ticket-desc { color: var(--muted); font-size: 14px; margin: 14px 0 0; }
+
+/* ---------- 777 ---------- */
+.ball.seven {
+  background: radial-gradient(circle at 30% 28%, #ffb066, #ff7a00 55%, #d96400);
+  box-shadow: inset 0 -4px 8px rgba(0,0,0,.22), 0 4px 10px rgba(255,122,0,.35);
+  width: 44px;
+  height: 44px;
+  font-size: 18px;
+}
+
+.ball.seven.sm { width: 30px; height: 30px; font-size: 13px; }
+
+/* ---------- קלפי צ'אנס ---------- */
+.cards-row {
+  display: flex;
+  justify-content: center;
+  gap: 10px;
+  direction: ltr;
+}
+
+.pcard {
+  width: 62px;
+  height: 86px;
+  background: #fff;
+  border: 2px solid #d8dde8;
+  border-radius: 10px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 2px;
+  color: #1c2333;
+  box-shadow: 0 4px 10px rgba(0,0,0,.12);
+}
+
+.pcard.red { color: #d6212f; }
+
+.pcard-value { font-size: 24px; font-weight: 900; }
+
+.pcard-suit { font-size: 22px; line-height: 1; }
+
+.pcard.sm { width: 40px; height: 56px; border-radius: 7px; }
+
+.pcard.sm .pcard-value { font-size: 15px; }
+
+.pcard.sm .pcard-suit { font-size: 14px; }
+
+.cards-row.spinning .pcard { animation: wobble .35s linear infinite; }
+
+.cards-row.revealed .pcard { animation: pop .5s cubic-bezier(.2, 1.6, .4, 1) backwards; }
+
+/* ---------- ספרות 123 ---------- */
+.digits-row {
+  display: flex;
+  justify-content: center;
+  gap: 12px;
+  direction: ltr;
+}
+
+.digit-tile {
+  width: 64px;
+  height: 76px;
+  border-radius: 12px;
+  background: linear-gradient(160deg, #00a389, #007a67);
+  color: #fff;
+  font-size: 34px;
+  font-weight: 900;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  box-shadow: inset 0 -5px 10px rgba(0,0,0,.25), 0 5px 12px rgba(0,163,137,.35);
+}
+
+.digit-tile.sm { width: 38px; height: 46px; font-size: 20px; border-radius: 8px; }
+
+.digits-row.spinning .digit-tile { animation: wobble .35s linear infinite; }
+
+.digits-row.revealed .digit-tile { animation: pop .5s cubic-bezier(.2, 1.6, .4, 1) backwards; }
+
+/* ---------- טבלת היסטוריה — תוספות ---------- */
+.td-card { font-weight: 900; font-size: 16px; }
+
+.suit-red { color: #d6212f; }
+
+.td-nums.small { font-size: 12.5px; letter-spacing: 0; }
+
+.td-nums.big { font-size: 18px; font-weight: 900; letter-spacing: 6px; }
+
+.mini-body { display: flex; justify-content: center; }
+
+@media (max-width: 640px) {
+  .game-tabs { grid-template-columns: repeat(2, 1fr); }
+}
+
 @media (max-width: 520px) {
   .logo-text { font-size: 40px; }
   .ball { width: 42px; height: 42px; font-size: 18px; }
+  .ball.seven { width: 38px; height: 38px; font-size: 15px; }
+  .pcard { width: 52px; height: 74px; }
+  .digit-tile { width: 54px; height: 66px; font-size: 28px; }
 }
