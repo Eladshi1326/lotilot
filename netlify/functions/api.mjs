@@ -1,11 +1,10 @@
-// לוטי לוט — ה־API בענן (Netlify Functions + Supabase)
-// אותם נתיבים בדיוק כמו השרת המקומי, כך שהאתר לא מרגיש הבדל:
+// לוטי לוט — ה־API בענן (Netlify Functions + Supabase REST)
+// עובד ישירות מול ה-REST של Supabase בלי שום ספרייה — יציב בכל גרסת Node.
 //   GET  /api/picks    — כל הכרטיסים
 //   POST /api/pick     — מילוי כרטיס (פעם אחת לכל משתמש)
 //   GET  /api/my-pick  — הכרטיס שלי
 //   GET  /api/draws    — היסטוריית הגרלות אמיתית (נמשכת מהפיס, נשמרת בקאש)
 
-import { createClient } from '@supabase/supabase-js';
 import { createRequire } from 'node:module';
 import { randomInt } from 'node:crypto';
 import { parseLottoCsv } from '../../server/parse-lotto.mjs';
@@ -16,11 +15,32 @@ const CSV_URL = 'https://www.pais.co.il/lotto/lotto_resultsDownload.aspx';
 const UA =
   'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0 Safari/537.36';
 
-function supa() {
-  const url = process.env.SUPABASE_URL;
-  const key = process.env.SUPABASE_SERVICE_ROLE_KEY;
+const PICK_COLS = 'id,name,numbers,strong,created_at';
+
+function supaConfig() {
+  const url = (process.env.SUPABASE_URL || '').replace(/\/+$/, '');
+  const key = process.env.SUPABASE_SERVICE_ROLE_KEY || '';
   if (!url || !key) return null;
-  return createClient(url, key, { auth: { persistSession: false } });
+  return { url, key };
+}
+
+async function rest(cfg, method, path, body, extraHeaders = {}) {
+  const res = await fetch(cfg.url + '/rest/v1/' + path, {
+    method,
+    headers: {
+      apikey: cfg.key,
+      Authorization: 'Bearer ' + cfg.key,
+      'Content-Type': 'application/json',
+      ...extraHeaders
+    },
+    body: body === undefined ? undefined : JSON.stringify(body)
+  });
+  let data = null;
+  const text = await res.text();
+  if (text) {
+    try { data = JSON.parse(text); } catch { data = { raw: text }; }
+  }
+  return { status: res.status, ok: res.ok, data };
 }
 
 function drawNumbers() {
@@ -32,8 +52,6 @@ function drawNumbers() {
   numbers.sort((a, b) => a - b);
   return { numbers, strong: randomInt(1, 8) };
 }
-
-const PICK_COLS = 'id,name,numbers,strong,created_at';
 
 function mapPick(row) {
   return {
@@ -76,14 +94,15 @@ async function handleDraws() {
       { updatedAt: new Date().toISOString(), source: 'pais.co.il', count: draws.length, draws },
       200,
       {
-        // הקאש של Netlify מחזיק את התשובה 5 שעות — הנתונים מהפיס מתעדכנים כל 5 שעות לכל היותר
+        // הקאש מחזיק את התשובה 5 שעות — הנתונים מהפיס מתעדכנים כל 5 שעות לכל היותר
         'cache-control': 'public, max-age=0, must-revalidate',
         'netlify-cdn-cache-control': 'public, s-maxage=18000, stale-while-revalidate=86400'
       }
     );
   } catch (err) {
     // אין גישה לפיס כרגע — מחזירים את הנתונים הארוזים באתר
-    const seed = require('../../server/data/lotto-history.json');
+    let seed = { updatedAt: null, count: 0, draws: [] };
+    try { seed = require('../../server/data/lotto-history.json'); } catch { /* אין קובץ */ }
     return json({ ...seed, note: 'fallback: ' + err.message }, 200, {
       'netlify-cdn-cache-control': 'public, s-maxage=1800'
     });
@@ -91,76 +110,89 @@ async function handleDraws() {
 }
 
 export default async (req) => {
-  const url = new URL(req.url);
-  const path = url.pathname.replace(/\/+$/, '');
+  try {
+    const url = new URL(req.url);
+    const path = url.pathname.replace(/\/+$/, '');
 
-  if (path === '/api/draws' && req.method === 'GET') {
-    return handleDraws();
-  }
-
-  const db = supa();
-  if (!db) {
-    return json(
-      { error: 'Supabase עוד לא מחובר — צריך להגדיר SUPABASE_URL ו־SUPABASE_SERVICE_ROLE_KEY במשתני הסביבה של Netlify' },
-      500
-    );
-  }
-
-  if (path === '/api/picks' && req.method === 'GET') {
-    const { data, error } = await db
-      .from('picks')
-      .select(PICK_COLS)
-      .order('id', { ascending: false })
-      .limit(2000);
-    if (error) return json({ error: error.message }, 500);
-    return json(
-      { count: data.length, picks: data.map(mapPick) },
-      200,
-      // קאש קצרצר משותף — כל הגולשים חולקים בקשה אחת כל 5 שניות
-      { 'netlify-cdn-cache-control': 'public, s-maxage=5, stale-while-revalidate=30' }
-    );
-  }
-
-  if (path === '/api/my-pick' && req.method === 'GET') {
-    const clientId = url.searchParams.get('clientId') || '';
-    const { data, error } = await db.from('picks').select(PICK_COLS).eq('client_id', clientId).maybeSingle();
-    if (error) return json({ error: error.message }, 500);
-    return json({ pick: data ? mapPick(data) : null });
-  }
-
-  if (path === '/api/pick' && req.method === 'POST') {
-    let body = {};
-    try {
-      body = await req.json();
-    } catch {
-      /* גוף ריק */
+    if (path === '/api/draws' && req.method === 'GET') {
+      return await handleDraws();
     }
-    const clientId = body.clientId;
-    let name = typeof body.name === 'string' ? body.name : '';
-    if (!clientId || typeof clientId !== 'string' || clientId.length > 64) {
-      return json({ error: 'bad clientId' }, 400);
+
+    const cfg = supaConfig();
+    if (!cfg) {
+      return json(
+        { error: 'Supabase עוד לא מחובר — צריך להגדיר SUPABASE_URL ו־SUPABASE_SERVICE_ROLE_KEY במשתני הסביבה של Netlify' },
+        500
+      );
     }
-    name = name.replace(/[<>]/g, '').trim().slice(0, 20);
 
-    const { numbers, strong } = drawNumbers();
-    const { data, error } = await db
-      .from('picks')
-      .insert({ client_id: clientId, name, numbers, strong })
-      .select(PICK_COLS)
-      .single();
-
-    if (error) {
-      if (error.code === '23505') {
-        // המשתמש כבר מילא כרטיס — מחזירים את הקיים
-        const { data: existing } = await db.from('picks').select(PICK_COLS).eq('client_id', clientId).maybeSingle();
-        return json({ error: 'already picked', pick: existing ? mapPick(existing) : null }, 409);
+    if (path === '/api/picks' && req.method === 'GET') {
+      const r = await rest(cfg, 'GET', 'picks?select=' + PICK_COLS + '&order=id.desc&limit=2000');
+      if (!r.ok || !Array.isArray(r.data)) {
+        return json({ error: 'db error', detail: r.data }, 500);
       }
-      return json({ error: error.message }, 500);
+      return json(
+        { count: r.data.length, picks: r.data.map(mapPick) },
+        200,
+        // קאש קצרצר משותף — כל הגולשים חולקים בקשה אחת כל 5 שניות
+        { 'netlify-cdn-cache-control': 'public, s-maxage=5, stale-while-revalidate=30' }
+      );
     }
-    return json({ pick: mapPick(data) }, 201);
-  }
 
-  return json({ error: 'not found' }, 404);
+    if (path === '/api/my-pick' && req.method === 'GET') {
+      const clientId = url.searchParams.get('clientId') || '';
+      if (!clientId) return json({ pick: null });
+      const r = await rest(
+        cfg, 'GET',
+        'picks?select=' + PICK_COLS + '&client_id=eq.' + encodeURIComponent(clientId) + '&limit=1'
+      );
+      if (!r.ok || !Array.isArray(r.data)) {
+        return json({ error: 'db error', detail: r.data }, 500);
+      }
+      return json({ pick: r.data.length ? mapPick(r.data[0]) : null });
+    }
+
+    if (path === '/api/pick' && req.method === 'POST') {
+      let body = {};
+      try {
+        body = await req.json();
+      } catch {
+        /* גוף ריק */
+      }
+      const clientId = body.clientId;
+      let name = typeof body.name === 'string' ? body.name : '';
+      if (!clientId || typeof clientId !== 'string' || clientId.length > 64) {
+        return json({ error: 'bad clientId' }, 400);
+      }
+      name = name.replace(/[<>]/g, '').trim().slice(0, 20);
+
+      const { numbers, strong } = drawNumbers();
+      const ins = await rest(
+        cfg, 'POST', 'picks?select=' + PICK_COLS,
+        { client_id: clientId, name, numbers, strong },
+        { Prefer: 'return=representation' }
+      );
+
+      if (ins.status === 409 || (ins.data && ins.data.code === '23505')) {
+        // המשתמש כבר מילא כרטיס — מחזירים את הקיים
+        const ex = await rest(
+          cfg, 'GET',
+          'picks?select=' + PICK_COLS + '&client_id=eq.' + encodeURIComponent(clientId) + '&limit=1'
+        );
+        const pick = ex.ok && Array.isArray(ex.data) && ex.data.length ? mapPick(ex.data[0]) : null;
+        return json({ error: 'already picked', pick }, 409);
+      }
+      if (!ins.ok || !Array.isArray(ins.data) || !ins.data.length) {
+        return json({ error: 'db error', detail: ins.data }, 500);
+      }
+      return json({ pick: mapPick(ins.data[0]) }, 201);
+    }
+
+    return json({ error: 'not found' }, 404);
+  } catch (err) {
+    // לעולם לא מפילים את הפונקציה — תמיד JSON מסודר
+    return json({ error: 'server error: ' + (err && err.message ? err.message : 'unknown') }, 500);
+  }
 };
 
 export const config = {

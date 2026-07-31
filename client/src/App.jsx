@@ -28,8 +28,11 @@ export default function App() {
     try {
       const res = await fetch('/api/picks');
       const data = await res.json();
-      setPicks(data.picks);
-      setCount(data.count);
+      // מתעדכנים רק אם התשובה תקינה — שגיאת שרת לא מפילה את האתר
+      if (res.ok && data && Array.isArray(data.picks)) {
+        setPicks(data.picks);
+        setCount(typeof data.count === 'number' ? data.count : data.picks.length);
+      }
     } catch {
       /* השרת רגע לא זמין — ננסה שוב בסבב הבא */
     }
@@ -40,7 +43,7 @@ export default function App() {
       try {
         const res = await fetch('/api/my-pick?clientId=' + encodeURIComponent(clientIdRef.current));
         const data = await res.json();
-        if (data.pick) setMyPick(data.pick);
+        if (res.ok && data && data.pick && Array.isArray(data.pick.numbers)) setMyPick(data.pick);
       } catch { /* לא נורא */ }
       await refreshPicks();
       setLoading(false);
