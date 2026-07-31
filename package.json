@@ -1,0 +1,24 @@
+{
+  "name": "loti-lot",
+  "private": true,
+  "version": "1.0.0",
+  "type": "module",
+  "description": "לוטי לוט — ניסוי חברתי: כל אחד ממלא כרטיס לוטו רנדומלי אחד, וכולם רואים את כולם",
+  "scripts": {
+    "dev": "node scripts/update-data.mjs && concurrently -k -n server,web -c blue,magenta \"node server/index.mjs\" \"vite --open\"",
+    "build": "vite build",
+    "start": "node scripts/update-data.mjs && node server/index.mjs",
+    "update-data": "node scripts/update-data.mjs",
+    "preview": "vite preview"
+  },
+  "dependencies": {
+    "express": "^4.21.2",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1"
+  },
+  "devDependencies": {
+    "@vitejs/plugin-react": "^4.3.4",
+    "concurrently": "^9.1.2",
+    "vite": "^5.4.19"
+  }
+}

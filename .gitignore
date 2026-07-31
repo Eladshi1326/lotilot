@@ -1,0 +1,7 @@
+node_modules/
+dist/
+server/data/picks.json
+npm-debug.log*
+*.log
+.DS_Store
+Thumbs.db
