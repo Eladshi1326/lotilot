@@ -1,6 +1,9 @@
 node_modules/
 dist/
 server/data/picks.json
+_to_delete/
+.env
+.netlify/
 npm-debug.log*
 *.log
 .DS_Store

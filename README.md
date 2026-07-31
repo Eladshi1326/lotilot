@@ -49,9 +49,21 @@
 - **הלוח חי**: הדף מושך עדכונים כל 5 שניות, אז רואים כרטיסים חדשים של אחרים בלי לרענן.
 - **היסטוריית הגרלות**: בכל הפעלה יורד קובץ התוצאות המלא (כל ההגרלות מאז 1968!) מהכתובת הרשמית של מפעל הפיס. בלי אינטרנט — נשארים עם הנתונים האחרונים שנשמרו.
 
-## פרסום לאינטרנט (בהמשך)
+## פרסום לאינטרנט — Netlify + Supabase
 
-האתר צריך שרת Node (בגלל השמירה המשותפת), אז GitHub Pages לבד לא יספיק. שירותים חינמיים שמתאימים: Render / Railway / Fly.io — מגדירים Build: `npm install && npm run build` ו־Start: `npm start`, וזהו.
+האתר חי ב־Netlify (`lotilot.netlify.app`). ב־Netlify אין שרת Node קבוע, ולכן בענן ה־API רץ בתור **Netlify Function** (`netlify/functions/api.mjs`) והכרטיסים נשמרים ב־**Supabase** (מסד נתונים חינמי בענן). מקומית שום דבר לא השתנה — `start-dev.cmd` מריץ את שרת ה־Express הרגיל.
+
+הקמה חד־פעמית:
+
+1. פותחים חשבון חינמי ב־[supabase.com](https://supabase.com) ויוצרים פרויקט חדש
+2. ב־SQL Editor מדביקים את התוכן של `supabase-setup.sql` ולוחצים Run
+3. ב־Supabase: Project Settings ← API — מעתיקים את **Project URL** ואת מפתח **service_role**
+4. ב־Netlify: Site configuration ← Environment variables — מוסיפים שניים:
+   - `SUPABASE_URL` = ה־Project URL
+   - `SUPABASE_SERVICE_ROLE_KEY` = מפתח ה־service_role
+5. דוחפים לגיט (`push-to-git.cmd`) — Netlify בונה מחדש לבד, וזהו ✅
+
+היסטוריית ההגרלות בענן נמשכת ישירות ממפעל הפיס דרך הפונקציה ונשמרת בקאש למשך 6 שעות — כלומר מתעדכנת כמה פעמים ביום לבד.
 
 ---
 

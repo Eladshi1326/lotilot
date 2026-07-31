@@ -7,34 +7,13 @@
 import { readFileSync, writeFileSync, existsSync, mkdirSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
+import { parseLottoCsv } from '../server/parse-lotto.mjs';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const DATA_DIR = join(__dirname, '..', 'server', 'data');
 const OUT_FILE = join(DATA_DIR, 'lotto-history.json');
 const CSV_URL = 'https://www.pais.co.il/lotto/lotto_resultsDownload.aspx';
 const TIMEOUT_MS = 20000;
-
-function parseCsv(text) {
-  const lines = text.trim().split(/\r?\n/);
-  const draws = [];
-  for (const line of lines) {
-    const cells = line.split(',').map((c) => c.trim());
-    if (cells.length < 9) continue;
-    const id = Number(cells[0]);
-    if (!Number.isFinite(id)) continue; // מדלג על שורת הכותרת
-    const numbers = cells.slice(2, 8).map(Number);
-    if (numbers.some((n) => !Number.isFinite(n))) continue;
-    draws.push({
-      id,
-      date: cells[1],
-      numbers,
-      strong: Number(cells[8]) || null,
-      winners: cells[9] === '' || cells[9] === undefined ? null : Number(cells[9]),
-      doubleWinners: cells[10] === '' || cells[10] === undefined ? null : Number(cells[10])
-    });
-  }
-  return draws;
-}
 
 function decodeWin1255(buf) {
   try {
@@ -89,7 +68,7 @@ async function main() {
     }
   }
 
-  const draws = parseCsv(csvText);
+  const draws = parseLottoCsv(csvText);
   if (draws.length === 0) {
     console.warn('[update-data] הקובץ שהתקבל ריק או בפורמט לא צפוי — לא נוגע בנתונים הקיימים.');
     return;

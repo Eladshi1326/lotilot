@@ -1,0 +1,13 @@
+# הגדרות Netlify עבור לוטי לוט
+# ה־build בונה את React, והפונקציה netlify/functions/api.mjs משרתת את כל נתיבי /api/*
+
+[build]
+  command = "npm run build"
+  publish = "dist"
+
+[build.environment]
+  NODE_VERSION = "20"
+
+[functions]
+  directory = "netlify/functions"
+  node_bundler = "esbuild"
