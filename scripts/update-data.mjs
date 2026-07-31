@@ -12,6 +12,7 @@ import { parseLottoCsv } from '../server/parse-lotto.mjs';
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const DATA_DIR = join(__dirname, '..', 'server', 'data');
 const OUT_FILE = join(DATA_DIR, 'lotto-history.json');
+const SEED_FILE = join(DATA_DIR, 'lotto-history.seed.mjs'); // עותק שנארז לתוך הפונקציה בענן
 const CSV_URL = 'https://www.pais.co.il/lotto/lotto_resultsDownload.aspx';
 const TIMEOUT_MS = 20000;
 
@@ -81,6 +82,8 @@ async function main() {
     draws
   };
   writeFileSync(OUT_FILE, JSON.stringify(payload), 'utf8');
+  // גרסת מודול — נארזת לתוך פונקציית הענן, כדי שההיסטוריה תמיד תהיה זמינה גם כשהפיס חוסם שרתים
+  writeFileSync(SEED_FILE, 'export default ' + JSON.stringify(payload) + ';\n', 'utf8');
   console.log('[update-data] נשמרו ' + draws.length + ' הגרלות (עדכנית: ' + draws[0].id + ' מתאריך ' + draws[0].date + ')');
 }
 

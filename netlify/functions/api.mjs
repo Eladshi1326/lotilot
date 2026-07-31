@@ -5,11 +5,9 @@
 //   GET  /api/my-pick  — הכרטיס שלי
 //   GET  /api/draws    — היסטוריית הגרלות אמיתית (נמשכת מהפיס, נשמרת בקאש)
 
-import { createRequire } from 'node:module';
 import { randomInt } from 'node:crypto';
 import { parseLottoCsv } from '../../server/parse-lotto.mjs';
-
-const require = createRequire(import.meta.url);
+import seedHistory from '../../server/data/lotto-history.seed.mjs';
 
 const CSV_URL = 'https://www.pais.co.il/lotto/lotto_resultsDownload.aspx';
 const UA =
@@ -73,7 +71,7 @@ function json(data, status = 200, headers = {}) {
 async function handleDraws() {
   try {
     const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), 8000);
+    const timer = setTimeout(() => controller.abort(), 3500);
     const res = await fetch(CSV_URL, {
       signal: controller.signal,
       headers: { 'User-Agent': UA, Accept: 'text/csv,application/text,*/*' }
@@ -100,11 +98,12 @@ async function handleDraws() {
       }
     );
   } catch (err) {
-    // אין גישה לפיס כרגע — מחזירים את הנתונים הארוזים באתר
-    let seed = { updatedAt: null, count: 0, draws: [] };
-    try { seed = require('../../server/data/lotto-history.json'); } catch { /* אין קובץ */ }
-    return json({ ...seed, note: 'fallback: ' + err.message }, 200, {
-      'netlify-cdn-cache-control': 'public, s-maxage=1800'
+    // אין גישה לפיס מהענן (הפיס חוסם שרתים) — מגישים את ההיסטוריה הארוזה בתוך האתר
+    const seed = seedHistory && Array.isArray(seedHistory.draws)
+      ? seedHistory
+      : { updatedAt: null, count: 0, draws: [] };
+    return json({ ...seed, note: 'bundled history (' + err.message + ')' }, 200, {
+      'netlify-cdn-cache-control': 'public, s-maxage=18000, stale-while-revalidate=86400'
     });
   }
 }
