@@ -13,7 +13,7 @@ if errorlevel 1 (
 
 if not exist .git (
   echo  [Loti Lot] Initializing a new git repository...
-  git init
+  git init -b main
 )
 
 git config user.email >nul 2>nul
@@ -23,36 +23,29 @@ if errorlevel 1 (
   git config user.email "eladshi1326@gmail.com"
 )
 
+git remote get-url origin >nul 2>nul
+if errorlevel 1 (
+  echo  [Loti Lot] Connecting to the GitHub repository for the first time...
+  git remote add origin https://github.com/Eladshi1326/lotilot.git
+)
+
 echo  [Loti Lot] Saving changes...
 git add -A
 git commit -m "Update site - %date% %time%"
 
-git remote get-url origin >nul 2>nul
-if errorlevel 1 (
-  echo.
-  echo  ============================================================
-  echo   No GitHub repository is connected yet.
-  echo   When you have one, run this command here once:
-  echo.
-  echo     git remote add origin https://github.com/USER/REPO.git
-  echo.
-  echo   Then double-click this file again to upload.
-  echo  ============================================================
-  pause
-  exit /b 0
-)
-
 echo  [Loti Lot] Pushing to GitHub...
-git push -u origin HEAD
+git push -u origin main
 if errorlevel 1 (
   echo.
   echo  [Loti Lot] Push failed. Common fixes:
   echo    - First time: GitHub may ask you to sign in - approve it in the browser.
-  echo    - If the remote has newer commits, run: git pull --rebase origin
+  echo    - If the remote has newer commits, run: git pull --rebase origin main
+  echo      and then double-click this file again.
   pause
   exit /b 1
 )
 
-echo  [Loti Lot] Done! Everything is up on GitHub.
+echo  [Loti Lot] Done! Everything is up on GitHub:
+echo  https://github.com/Eladshi1326/lotilot
 pause
 exit /b 0
