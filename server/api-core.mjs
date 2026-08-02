@@ -1,7 +1,7 @@
 // לוטי לוט — הלוגיקה המשותפת של ה-API (שרת מקומי + פונקציה בענן).
 // מקבלת "מחסן" (store) שיודע לקרוא ולכתוב כרטיסים, ולא מתעניינת איפה הם נשמרים.
 
-import { GAMES, GAME_KEYS, isValidGame, drawTs } from './games.mjs';
+import { GAMES, GAME_KEYS, isValidGame, drawTs, priceOf, matchedIndexes } from './games.mjs';
 import { annotatePicks, buildScoreboard, buildDrawTimeline, missingAiDraws, AI_CLIENT_ID, AI_NAME } from './scoring.mjs';
 
 const MAX_AI_BACKFILL = 12; // כמה כרטיסים המוח משלים בבת אחת, כדי לא להאט את הטעינה
@@ -94,6 +94,15 @@ export async function buildState({ store, drawsByGame, nextInfo, game, clientId 
     totalTickets: annotated.length,
     drawsToday,
     drawsPerDay: GAMES[game].drawsPerDay || 1,
+    variants: GAMES[game].variants
+      ? Object.values(GAMES[game].variants).map((v) => ({ ...v }))
+      : null,
+    // הכרטיסים האחרונים של המוח במשחק הזה — כדי להראות מה הוא בחר ובמה הצליח
+    aiPicks: forGame
+      .filter((p) => p.clientId === AI_CLIENT_ID)
+      .sort((a, b) => b.drawId - a.drawId)
+      .slice(0, 8)
+      .map(publicPick),
     myPick: currentPicks.find((p) => p.clientId === clientId) || null,
     myPicks: mine.slice(0, 12).map(publicPick),
     myWins,
@@ -114,6 +123,8 @@ function publicPick(p) {
   return {
     id: p.id,
     game: p.game,
+    variant: p.variant || 'regular',
+    matched: p.matched || [],
     drawId: p.drawId,
     name: p.name,
     numbers: p.numbers,
@@ -141,6 +152,8 @@ function publicStats(s) {
     net: Math.round(s.net * 100) / 100,
     wins: s.wins,
     bestPrize: s.bestPrize,
+    bestLabel: s.bestLabel || null,
+    bestGame: s.bestGame || null,
     isAi: s.clientId === AI_CLIENT_ID,
     clientId: s.clientId === AI_CLIENT_ID ? AI_CLIENT_ID : undefined
   };
@@ -149,12 +162,14 @@ function publicStats(s) {
 // מילוי כרטיס להגרלה מסוימת
 export async function submitPick({ store, drawsByGame, nextInfo, body }) {
   const clientId = body && body.clientId;
-  let { name, game, drawId } = body || {};
+  let { name, game, drawId, variant } = body || {};
   if (!clientId || typeof clientId !== 'string' || clientId.length > 64) {
     return { status: 400, data: { error: 'bad clientId' } };
   }
   if (!game) game = 'lotto';
   if (!isValidGame(game)) return { status: 400, data: { error: 'bad game' } };
+  const variants = GAMES[game].variants;
+  if (!variants || !variant || !variants[variant]) variant = 'regular';
 
   const openDraw = currentDrawId(game, nextInfo, drawsByGame[game] || []);
   // אפשר למלא רק להגרלה הפתוחה — לא לאחורה
@@ -174,6 +189,7 @@ export async function submitPick({ store, drawsByGame, nextInfo, body }) {
     clientId,
     game,
     drawId,
+    variant,
     name: cleanName(name),
     numbers,
     strong

@@ -57,11 +57,33 @@ export function Versus({ me, ai }) {
 }
 
 // טבלת כל המשתתפים
+const MEDALS = ['🥇', '🥈', '🥉'];
+
 export default function Scoreboard({ rows, myName }) {
   if (!rows || rows.length === 0) return null;
+  const top = rows.slice(0, 3);
   return (
     <section className="card-block">
-      <h3 className="block-title">💰 טבלת הכסף — כולם</h3>
+      <h3 className="block-title">🏆 מי מוביל</h3>
+
+      {top.length > 1 ? (
+        <div className="podium">
+          {top.map((r, i) => (
+            <div className={'pod pod-' + (i + 1) + (r.isAi ? ' ai' : '') + (r.name === myName ? ' me' : '')} key={i}>
+              <span className="pod-medal">{MEDALS[i]}</span>
+              <span className="pod-name">{r.isAi ? '🧠 ' : ''}{r.name}</span>
+              <span className={'pod-net ' + (r.net >= 0 ? 'pos' : 'neg')}>{formatSigned(r.net)}</span>
+              <span className="pod-detail">{r.tickets} כרטיסים · זכה {formatMoney(r.won)}</span>
+              {r.bestPrize > 0 ? (
+                <span className="pod-best">הכי גדול: {formatMoney(r.bestPrize)}{r.bestLabel ? ' · ' + r.bestLabel : ''}</span>
+              ) : (
+                <span className="pod-best dim">עוד לא זכה</span>
+              )}
+            </div>
+          ))}
+        </div>
+      ) : null}
+
       <div className="table-wrap">
         <table className="score-table">
           <thead>
@@ -72,12 +94,13 @@ export default function Scoreboard({ rows, myName }) {
               <th>הוציא</th>
               <th>זכה</th>
               <th>מאזן</th>
+              <th>הזכייה הגדולה</th>
             </tr>
           </thead>
           <tbody>
             {rows.map((r, i) => (
               <tr key={r.name + i} className={r.isAi ? 'row-ai' : r.name === myName ? 'row-me' : ''}>
-                <td className="td-rank">{i + 1}</td>
+                <td className="td-rank">{MEDALS[i] || i + 1}</td>
                 <td className="td-name">
                   {r.isAi ? '🧠 ' : ''}
                   {r.name}
@@ -87,6 +110,11 @@ export default function Scoreboard({ rows, myName }) {
                 <td className="td-money">{formatMoney(r.spent)}</td>
                 <td className="td-money win">{formatMoney(r.won)}</td>
                 <td className={'td-money ' + (r.net >= 0 ? 'pos' : 'neg')}>{formatSigned(r.net)}</td>
+                <td className="td-best">
+                  {r.bestPrize > 0 ? (
+                    <span>{formatMoney(r.bestPrize)}{r.bestLabel ? <span className="best-label"> · {r.bestLabel}</span> : null}</span>
+                  ) : <span className="dim">—</span>}
+                </td>
               </tr>
             ))}
           </tbody>

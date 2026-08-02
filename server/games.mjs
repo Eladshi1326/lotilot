@@ -28,10 +28,19 @@ export function sortDraws(draws) {
 
 // טבלת הזכיות הרשמית של ההגרלה (כמה זכו בכל מקום ובכמה) — נשלפת מהפיס על ידי הסוכן.
 // אם היא קיימת, הסכום מדויק; אחרת נופלים להערכה על בסיס הגרלות אחרונות.
-function officialTier(draw, key) {
-  if (!draw || !Array.isArray(draw.prizes)) return null;
-  const t = draw.prizes.find((x) => x.key === key);
+function officialTier(draw, key, table = 'prizes') {
+  const list = draw && draw[table];
+  if (!Array.isArray(list)) return null;
+  const t = list.find((x) => x.key === key);
   return t && Number.isFinite(t.prize) ? t : null;
+}
+
+// מחיר הכרטיס בפועל — בלוטו יש שני סוגי טופס
+export function priceOf(gameKey, variant) {
+  const g = GAMES[gameKey];
+  if (!g) return 0;
+  if (g.variants && variant && g.variants[variant]) return g.variants[variant].price;
+  return g.price;
 }
 
 export const GAMES = {
@@ -46,6 +55,11 @@ export const GAMES = {
     drawsPerDay: 1,
     price: 3, // ₪ לטבלה אחת (בפועל טופס מינימלי הוא 2 טבלאות = 6 ₪)
     priceNote: 'טבלה אחת בטופס רגיל',
+    // דאבל לוטו: אותה הגרלה, טבלה כפולה — עולה פי 2 ומשלמת פי 2
+    variants: {
+      regular: { key: 'regular', label: 'לוטו רגיל', price: 3, hint: 'טבלה רגילה' },
+      double: { key: 'double', label: 'דאבל לוטו', price: 6, hint: 'פי 2 מחיר, פי 2 פרס' }
+    },
     prizesExact: false, // פרסי הלוטו נקבעים לפי מחזור ההגרלה
     parseRow(cells) {
       const numbers = cells.slice(2, 8).map(Number);
@@ -66,6 +80,9 @@ export const GAMES = {
     },
     // 6 מתוך 37 + מספר חזק. אם יש טבלת זכיות רשמית — משתמשים בסכום האמיתי.
     evaluate(pick, draw) {
+      const isDouble = pick.variant === 'double';
+      const table = isDouble ? 'prizesDouble' : 'prizes';
+      const mult = isDouble ? 2 : 1; // בדאבל לוטו כל פרס כפול
       const hits = pick.numbers.filter((n) => draw.numbers.includes(n)).length;
       const strongHit = pick.strong != null && pick.strong === draw.strong;
       const tiers = [
@@ -80,13 +97,13 @@ export const GAMES = {
       ];
       for (const t of tiers) {
         if (hits >= t.need && (!t.strong || strongHit)) {
-          const official = officialTier(draw, t.key);
+          const official = officialTier(draw, t.key, table);
           return {
             hits,
             strongHit,
-            prize: official ? official.prize : t.est,
+            prize: official ? official.prize : t.est * mult,
             winnersInTier: official ? official.winners : null,
-            label: t.label,
+            label: t.label + (isDouble ? ' · דאבל' : ''),
             exact: Boolean(official)
           };
         }
@@ -233,6 +250,16 @@ export function parseGameCsv(gameKey, text) {
 export function evaluatePick(pick, draw) {
   const game = GAMES[pick.game];
   if (!game || !draw || !Array.isArray(draw.numbers)) return null;
+  const cost = priceOf(pick.game, pick.variant);
   const res = game.evaluate(pick, draw);
-  return { ...res, cost: game.price, net: res.prize - game.price };
+  return { ...res, cost, net: res.prize - cost };
+}
+
+// אילו מספרים בכרטיס פגעו — לסימון ויזואלי
+export function matchedIndexes(pick, draw) {
+  if (!draw || !Array.isArray(draw.numbers) || !Array.isArray(pick.numbers)) return [];
+  if (pick.game === 'chance' || pick.game === '123') {
+    return pick.numbers.map((v, i) => (v === draw.numbers[i] ? i : -1)).filter((i) => i > -1);
+  }
+  return pick.numbers.map((v, i) => (draw.numbers.includes(v) ? i : -1)).filter((i) => i > -1);
 }

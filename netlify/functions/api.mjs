@@ -9,7 +9,7 @@ import seedAll from '../../server/data/all-history.seed.mjs';
 const NEXT_URL = 'https://www.pais.co.il/include/getNextLotteryDate.ashx?type=';
 const UA =
   'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0 Safari/537.36';
-const PICK_COLS = 'id,client_id,game,draw_id,name,numbers,strong,created_at';
+const PICK_COLS = 'id,client_id,game,draw_id,variant,name,numbers,strong,created_at';
 
 // ---------- Supabase ----------
 function supaConfig() {
@@ -42,6 +42,7 @@ const fromRow = (r) => ({
   id: r.id,
   clientId: r.client_id,
   game: r.game || 'lotto',
+  variant: r.variant || 'regular',
   drawId: r.draw_id,
   name: r.name || '',
   numbers: r.numbers,
@@ -53,6 +54,7 @@ const toRow = (p) => ({
   client_id: p.clientId,
   game: p.game,
   draw_id: p.drawId,
+  variant: p.variant || 'regular',
   name: p.name || '',
   numbers: p.numbers,
   strong: p.strong ?? null

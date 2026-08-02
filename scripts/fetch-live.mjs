@@ -188,15 +188,22 @@ function parsePage(gameKey, text) {
 // ---------- טבלת הזכיות הרשמית ----------
 const cleanNum = (s) => Number(String(s).replace(/[^\d.]/g, '')) || 0;
 
-export function parsePrizeTable(gameKey, text) {
+export function parsePrizeTable(gameKey, text, which = 'regular') {
   const lines = toLines(text).map((l) => l.replace(/&#x27;|&#39;/g, "'").trim());
   const tiers = [];
 
   if (gameKey === 'lotto') {
-    // עוצרים לפני טבלת הדאבל לוטו — אנחנו משחקים בטופס רגיל
-    const start = lines.findIndex((l) => /טבלת זכיות לוטו/.test(l));
-    const end = lines.findIndex((l) => /טבלת זכיות דאבל/.test(l));
-    const slice = lines.slice(start > -1 ? start : 0, end > -1 ? end : lines.length);
+    const dbl = lines.findIndex((l) => /טבלת זכיות דאבל/.test(l));
+    const reg = lines.findIndex((l) => /טבלת זכיות לוטו/.test(l));
+    // טבלה רגילה: מתחילתה ועד הדאבל. טבלת דאבל: ממנה והלאה.
+    const extra = lines.findIndex((l) => /אקסטרא/.test(l));
+    const start = which === 'double' ? dbl : reg > -1 ? reg : 0;
+    // טבלת הדאבל נגמרת היכן שמתחילה הגרלת אקסטרא — אחרת נבלע גם היא
+    const end = which === 'double'
+      ? (extra > dbl ? extra : lines.length)
+      : (dbl > -1 ? dbl : extra > -1 ? extra : lines.length);
+    if (which === 'double' && dbl === -1) return null;
+    const slice = lines.slice(start, end);
     for (let i = 0; i < slice.length; i++) {
       if (!/^מס'?\s*ניחושים$/.test(slice[i])) continue;
       const key = (slice[i + 1] || '').replace(/\s/g, '').replace('+חזק', '+s');
@@ -225,17 +232,28 @@ async function attachPrizes(gameKey, draws, prevDraws) {
   const prevById = new Map((prevDraws || []).map((d) => [d.id, d.prizes]));
 
   for (const d of draws.slice(0, PRIZE_DRAWS)) {
-    const cached = prevById.get(d.id);
-    if (cached && cached.length) { d.prizes = cached; continue; }
+    const prevDraw = (prevDraws || []).find((x) => x.id === d.id);
+    const cached = prevDraw && prevDraw.prizes;
+    const cacheComplete = cached && cached.length && (gameKey !== 'lotto' || prevDraw.prizesDouble);
+    if (cacheComplete) {
+      d.prizes = cached;
+      if (prevDraw.prizesDouble) d.prizesDouble = prevDraw.prizesDouble;
+      continue;
+    }
     for (const [via, url, ms] of [
       ['direct', BASE + maker(d.id), 10000],
       ['proxy', PROXY + BASE + maker(d.id), 70000]
     ]) {
       try {
-        const tiers = parsePrizeTable(gameKey, decode(await raw(url, ms)));
+        const html = decode(await raw(url, ms));
+        const tiers = parsePrizeTable(gameKey, html);
         if (!tiers) throw new Error('לא נמצאה טבלה');
         d.prizes = tiers;
-        log(GAMES[gameKey].name + ' → טבלת זכיות להגרלה ' + d.id + ' (' + tiers.length + ' מקומות)');
+        if (gameKey === 'lotto') {
+          const dbl = parsePrizeTable(gameKey, html, 'double');
+          if (dbl) d.prizesDouble = dbl;
+        }
+        log(GAMES[gameKey].name + ' → טבלת זכיות להגרלה ' + d.id + ' (' + tiers.length + ' מקומות' + (d.prizesDouble ? ' + דאבל' : '') + ')');
         break;
       } catch (err) {
         if (via === 'proxy') log(GAMES[gameKey].name + ' → אין טבלת זכיות להגרלה ' + d.id);

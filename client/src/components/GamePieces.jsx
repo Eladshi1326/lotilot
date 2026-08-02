@@ -3,13 +3,17 @@ import { SUITS_UI } from '../games.js';
 
 // רכיבי תצוגה משותפים לכל המשחקים — כדורים, קלפים וספרות
 
-export function LottoBalls({ numbers, strong, spinning, revealed, size }) {
+export function LottoBalls({ numbers, strong, spinning, revealed, size, matched }) {
   const cls = 'balls-row' + (spinning ? ' spinning' : '') + (revealed ? ' revealed' : '');
   const ballCls = 'ball' + (size === 'sm' ? ' sm' : '');
   return (
     <div className={cls}>
       {numbers.map((n, i) => (
-        <span className={ballCls} style={{ animationDelay: i * 0.08 + 's' }} key={i}>
+        <span
+          className={ballCls + (matched && matched.includes(i) ? ' hit' : '')}
+          style={{ animationDelay: i * 0.08 + 's' }}
+          key={i}
+        >
           {n === null ? '?' : n}
         </span>
       ))}
@@ -20,13 +24,17 @@ export function LottoBalls({ numbers, strong, spinning, revealed, size }) {
   );
 }
 
-export function SevenBalls({ numbers, spinning, revealed, size }) {
+export function SevenBalls({ numbers, spinning, revealed, size, matched }) {
   const cls = 'balls-row' + (spinning ? ' spinning' : '') + (revealed ? ' revealed' : '');
   const ballCls = 'ball seven' + (size === 'sm' ? ' sm' : '');
   return (
     <div className={cls}>
       {numbers.map((n, i) => (
-        <span className={ballCls} style={{ animationDelay: i * 0.07 + 's' }} key={i}>
+        <span
+          className={ballCls + (matched && matched.includes(i) ? ' hit' : '')}
+          style={{ animationDelay: i * 0.07 + 's' }}
+          key={i}
+        >
           {n === null ? '?' : n}
         </span>
       ))}
@@ -34,13 +42,13 @@ export function SevenBalls({ numbers, spinning, revealed, size }) {
   );
 }
 
-export function ChanceCards({ cards, spinning, revealed, size }) {
+export function ChanceCards({ cards, spinning, revealed, size, matched }) {
   const cls = 'cards-row' + (spinning ? ' spinning' : '') + (revealed ? ' revealed' : '');
   return (
     <div className={cls}>
       {SUITS_UI.map((suit, i) => (
         <div
-          className={'pcard' + (suit.red ? ' red' : '') + (size === 'sm' ? ' sm' : '')}
+          className={'pcard' + (suit.red ? ' red' : '') + (size === 'sm' ? ' sm' : '') + (matched && matched.includes(i) ? ' hit' : '')}
           style={{ animationDelay: i * 0.1 + 's' }}
           key={suit.key}
         >
@@ -52,13 +60,13 @@ export function ChanceCards({ cards, spinning, revealed, size }) {
   );
 }
 
-export function Digits({ digits, spinning, revealed, size }) {
+export function Digits({ digits, spinning, revealed, size, matched }) {
   const cls = 'digits-row' + (spinning ? ' spinning' : '') + (revealed ? ' revealed' : '');
   return (
     <div className={cls}>
       {digits.map((d, i) => (
         <span
-          className={'digit-tile' + (size === 'sm' ? ' sm' : '')}
+          className={'digit-tile' + (size === 'sm' ? ' sm' : '') + (matched && matched.includes(i) ? ' hit' : '')}
           style={{ animationDelay: i * 0.12 + 's' }}
           key={i}
         >
@@ -70,11 +78,12 @@ export function Digits({ digits, spinning, revealed, size }) {
 }
 
 // בחירת רכיב לפי משחק
-export function PickView({ game, numbers, strong, spinning, revealed, size }) {
-  if (game === 'chance') return <ChanceCards cards={numbers} spinning={spinning} revealed={revealed} size={size} />;
-  if (game === '777') return <SevenBalls numbers={numbers} spinning={spinning} revealed={revealed} size={size} />;
-  if (game === '123') return <Digits digits={numbers} spinning={spinning} revealed={revealed} size={size} />;
-  return <LottoBalls numbers={numbers} strong={strong} spinning={spinning} revealed={revealed} size={size} />;
+export function PickView({ game, numbers, strong, spinning, revealed, size, matched }) {
+  const common = { spinning, revealed, size, matched };
+  if (game === 'chance') return <ChanceCards cards={numbers} {...common} />;
+  if (game === '777') return <SevenBalls numbers={numbers} {...common} />;
+  if (game === '123') return <Digits digits={numbers} {...common} />;
+  return <LottoBalls numbers={numbers} strong={strong} {...common} />;
 }
 
 export function emptyNumbers(game) {

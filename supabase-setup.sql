@@ -10,6 +10,7 @@ create table if not exists public.picks (
   name text not null default '',           -- כינוי (לא חובה)
   numbers jsonb not null,                  -- המספרים/הקלפים של הכרטיס
   strong int,                              -- המספר החזק (רק בלוטו)
+  variant text not null default 'regular', -- regular / double (דאבל לוטו)
   created_at timestamptz not null default now(),
   constraint picks_client_game_draw_unique unique (client_id, game, draw_id)
 );
@@ -24,6 +25,7 @@ alter table public.picks alter column numbers type jsonb using to_jsonb(numbers)
 alter table public.picks alter column strong drop not null;
 alter table public.picks add column if not exists game text not null default 'lotto';
 alter table public.picks add column if not exists draw_id integer not null default 0;
+alter table public.picks add column if not exists variant text not null default 'regular';
 alter table public.picks drop constraint if exists picks_client_id_key;
 alter table public.picks drop constraint if exists picks_client_game_unique;
 alter table public.picks drop constraint if exists picks_client_game_draw_unique;

@@ -43,6 +43,7 @@ function makeRow(p) {
     clientId: p.clientId,
     game: p.game,
     drawId: p.drawId,
+    variant: p.variant || 'regular',
     name: p.name || '',
     numbers: p.numbers,
     strong: p.strong ?? null,

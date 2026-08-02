@@ -12,7 +12,7 @@ export default function TopNav({ game, setGame, nextInfo, now, myTickets }) {
           <span className="brand-name">לוטי לוט</span>
         </div>
 
-        <nav className="nav-games">
+        <nav className="nav-games" aria-label="בחירת משחק">
           {GAME_KEYS.map((k) => (
             <button
               key={k}

@@ -25,16 +25,19 @@ function PickTile({ pick, mine }) {
     <div className={cls}>
       <div className="tile-head">
         <span className="tile-name">{pick.isAi ? '🧠 ' : ''}{pick.name || 'משתתף #' + pick.id}</span>
+        {pick.variant === 'double' ? <span className="tag dbl">דאבל</span> : null}
         {mine ? <span className="tag me">אתה</span> : null}
       </div>
-      <PickView game={pick.game} numbers={pick.numbers} strong={pick.strong} size="sm" />
+      <PickView game={pick.game} numbers={pick.numbers} strong={pick.strong} size="sm" matched={pick.matched} />
       <div className="tile-foot">
         {pick.status === 'pending' ? (
           <span className="tile-pending">ממתין להגרלה</span>
         ) : pick.prize > 0 ? (
           <span className="tile-win">🎉 {pick.label} · {formatMoney(pick.prize)}</span>
         ) : (
-          <span className="tile-lose">לא זכה</span>
+          <span className="tile-lose">
+            {pick.matched && pick.matched.length ? pick.matched.length + ' פגיעות — לא מספיק' : 'לא זכה'}
+          </span>
         )}
         <span className="tile-time">{timeStr(pick.ts)}</span>
       </div>
@@ -108,6 +111,59 @@ function DrawRow({ row, game, myPickId }) {
   );
 }
 
+// המוח — מה הוא בחר, במה פגע וכמה הרוויח
+function BrainPanel({ ai, aiPicks, game }) {
+  if (!ai) return null;
+  const picks = aiPicks || [];
+  const wins = picks.filter((p) => p.prize > 0);
+  return (
+    <section className="card-block brain">
+      <h3 className="block-title">🧠 המוח — היריב שלך</h3>
+      <div className="money-row">
+        <div className="money-box"><span className="mb-label">כרטיסים</span><span className="mb-val">{ai.tickets}</span></div>
+        <div className="money-box"><span className="mb-label">הוציא</span><span className="mb-val neg">{formatMoney(ai.spent)}</span></div>
+        <div className="money-box"><span className="mb-label">זכה</span><span className="mb-val pos">{formatMoney(ai.won)}</span></div>
+        <div className="money-box big">
+          <span className="mb-label">מאזן</span>
+          <span className={'mb-val ' + (ai.net >= 0 ? 'pos' : 'neg')}>{formatSigned(ai.net)}</span>
+        </div>
+      </div>
+      {ai.bestPrize > 0 ? (
+        <p className="brain-best">
+          🏆 הזכייה הגדולה שלו: <b>{formatMoney(ai.bestPrize)}</b>
+          {ai.bestLabel ? ' — ' + ai.bestLabel : ''}
+          {ai.bestGame && GAMES_UI[ai.bestGame] ? ' ב' + GAMES_UI[ai.bestGame].name : ''}
+        </p>
+      ) : null}
+      {picks.length > 0 ? (
+        <>
+          <div className="wins-title">
+            הכרטיסים האחרונים שלו ב{GAMES_UI[game].name} — הכדורים הירוקים הם פגיעות:
+          </div>
+          <div className="brain-picks">
+            {picks.map((p) => (
+              <div className={'brain-pick' + (p.prize > 0 ? ' won' : '')} key={p.id}>
+                <span className="bp-draw">הגרלה {p.drawId}</span>
+                <span className="bp-nums">
+                  <PickView game={p.game} numbers={p.numbers} strong={p.strong} size="sm" matched={p.matched} />
+                </span>
+                <span className="bp-res">
+                  {p.status === 'pending' ? '⏳ ממתין'
+                    : p.prize > 0 ? '🎉 ' + p.label + ' · ' + formatMoney(p.prize)
+                    : (p.matched ? p.matched.length : 0) + ' פגיעות · לא זכה'}
+                </span>
+              </div>
+            ))}
+          </div>
+          <p className="block-note">
+            סך הכל הוא זכה ב-{wins.length} מהכרטיסים המוצגים. הוא בוחר אקראית לגמרי — בדיוק כמוך.
+          </p>
+        </>
+      ) : null}
+    </section>
+  );
+}
+
 // המאזן שלי — כמה זכיתי, בכמה זכיות, וכמה יצא בסך הכל
 function MyMoney({ me, myWins, gameName }) {
   if (!me || me.tickets === 0) return null;
@@ -152,6 +208,7 @@ export default function GameView({ game, state, nextInfo, now, clientId, onSubmi
   const [spinning, setSpinning] = useState(false);
   const [display, setDisplay] = useState({ numbers: emptyNumbers(game), strong: null });
   const [name, setName] = useState(() => localStorage.getItem('lotilot_name') || '');
+  const [variant, setVariant] = useState('regular');
   const [error, setError] = useState('');
   const [justWon, setJustWon] = useState(false);
   const spinTimer = useRef(null);
@@ -164,6 +221,7 @@ export default function GameView({ game, state, nextInfo, now, clientId, onSubmi
     setSpinning(false);
     setError('');
     setJustWon(false);
+    setVariant('regular');
     setDisplay({ numbers: emptyNumbers(game), strong: null });
   }, [game]);
 
@@ -181,7 +239,7 @@ export default function GameView({ game, state, nextInfo, now, clientId, onSubmi
       const res = await fetch('/api/pick', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ clientId, name, game, drawId: state.drawId })
+        body: JSON.stringify({ clientId, name, game, drawId: state.drawId, variant })
       });
       const data = await res.json();
       if (!data.pick) throw new Error(data.error || 'error');
@@ -203,7 +261,9 @@ export default function GameView({ game, state, nextInfo, now, clientId, onSubmi
     }
   }
 
-  const price = state ? state.price : 0;
+  const variants = state && state.variants ? state.variants : null;
+  const chosen = variants ? variants.find((v) => v.key === variant) : null;
+  const price = chosen ? chosen.price : state ? state.price : 0;
   const shown = myPick || display;
   const perDay = state ? state.drawsPerDay : 1;
   const times = todayDrawTimes(game);
@@ -233,7 +293,7 @@ export default function GameView({ game, state, nextInfo, now, clientId, onSubmi
           </div>
           <div className="price-tag">
             <span className="price-num">{formatMoney(price)}</span>
-            <span className="price-note">{state ? state.priceNote : 'לכרטיס'}</span>
+            <span className="price-note">{chosen ? chosen.hint : state ? state.priceNote : 'לכרטיס'}</span>
           </div>
         </div>
 
@@ -245,9 +305,9 @@ export default function GameView({ game, state, nextInfo, now, clientId, onSubmi
               <p className="play-owner">
                 {myPick.name || 'הכרטיס שלך'} — {justWon ? 'הכרטיס שלך להגרלה הזו! 🎉' : 'כבר יש לך כרטיס בהגרלה הזו ✓'}
               </p>
-              <PickView game={game} numbers={shown.numbers} strong={shown.strong} revealed={justWon} />
+              <PickView game={game} numbers={shown.numbers} strong={shown.strong} revealed={justWon} matched={myPick.matched} />
               <p className="dim-note">
-                שילמת {formatMoney(myPick.cost)} · {myPick.status === 'pending'
+                {myPick.variant === 'double' ? 'דאבל לוטו · ' : ''}שילמת {formatMoney(myPick.cost)} · {myPick.status === 'pending'
                   ? 'מחכים לתוצאות'
                   : myPick.prize > 0 ? '🎉 זכית ' + formatMoney(myPick.prize) : 'הפעם לא זכית'}
                 {perDay > 1 ? ' · כרטיס נוסף ייפתח בהגרלה הבאה' : ''}
@@ -257,6 +317,23 @@ export default function GameView({ game, state, nextInfo, now, clientId, onSubmi
             <>
               <PickView game={game} numbers={display.numbers} strong={display.strong} spinning={spinning} />
               <div className="play-controls">
+                {variants ? (
+                  <div className="variant-picker" role="group" aria-label="סוג הטופס">
+                    {variants.map((v) => (
+                      <button
+                        key={v.key}
+                        className={'variant-btn' + (variant === v.key ? ' active' : '')}
+                        onClick={() => setVariant(v.key)}
+                        disabled={spinning}
+                        type="button"
+                      >
+                        <span className="v-label">{v.label}</span>
+                        <span className="v-price">{formatMoney(v.price)}</span>
+                        <span className="v-hint">{v.hint}</span>
+                      </button>
+                    ))}
+                  </div>
+                ) : null}
                 <input
                   className="name-input" type="text" maxLength={20} placeholder="כינוי (לא חובה)"
                   value={name} disabled={spinning} onChange={(e) => setName(e.target.value)}
@@ -274,6 +351,7 @@ export default function GameView({ game, state, nextInfo, now, clientId, onSubmi
 
       {state ? <Versus me={state.me} ai={state.ai} /> : null}
       {state ? <MyMoney me={state.me} myWins={state.myWins} gameName={ui.name} /> : null}
+      {state ? <BrainPanel ai={state.ai} aiPicks={state.aiPicks} game={game} /> : null}
 
       <section className="card-block">
         <h3 className="block-title">

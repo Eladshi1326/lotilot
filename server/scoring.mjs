@@ -1,5 +1,5 @@
 // לוטי לוט — חישוב תוצאות וכסף: מי זכה בכמה, ומי מוביל מול המוח
-import { GAMES, GAME_KEYS, evaluatePick, drawTs } from './games.mjs';
+import { GAMES, GAME_KEYS, evaluatePick, drawTs, priceOf, matchedIndexes } from './games.mjs';
 
 export const AI_CLIENT_ID = 'ai-brain-v1';
 export const AI_NAME = 'המוח';
@@ -14,8 +14,9 @@ export function annotatePicks(picks, drawsByGame) {
   return picks.map((p) => {
     const draws = drawsByGame[p.game] || [];
     const draw = findDraw(draws, p.drawId);
+    const cost = priceOf(p.game, p.variant);
     if (!draw) {
-      return { ...p, cost: GAMES[p.game].price, status: 'pending', prize: 0, net: -GAMES[p.game].price };
+      return { ...p, cost, status: 'pending', prize: 0, net: -cost };
     }
     const r = evaluatePick(p, draw);
     return {
@@ -27,6 +28,8 @@ export function annotatePicks(picks, drawsByGame) {
       label: r.label,
       exact: r.exact,
       status: r.prize > 0 ? 'won' : 'lost',
+      matched: matchedIndexes(p, draw),
+      winnersInTier: r.winnersInTier,
       drawNumbers: draw.numbers,
       drawStrong: draw.strong,
       drawDate: draw.date
@@ -45,6 +48,8 @@ function emptyStats(name, clientId) {
     net: 0,
     wins: 0,
     bestPrize: 0,
+    bestLabel: null,
+    bestGame: null,
     byGame: {}
   };
 }
@@ -67,7 +72,11 @@ export function buildScoreboard(annotated) {
       s.won += p.prize;
       if (p.prize > 0) {
         s.wins++;
-        if (p.prize > s.bestPrize) s.bestPrize = p.prize;
+        if (p.prize > s.bestPrize) {
+          s.bestPrize = p.prize;
+          s.bestLabel = p.label;
+          s.bestGame = p.game;
+        }
       }
     }
     s.net = s.won - s.spent;
