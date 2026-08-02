@@ -29,6 +29,13 @@ if errorlevel 1 (
   git remote add origin https://github.com/Eladshi1326/lotilot.git
 )
 
+rem A stale lock file can be left behind if a git process was interrupted.
+rem It blocks add/commit, so clear it before saving.
+if exist ".git\index.lock" (
+  echo  [Loti Lot] Clearing a stale git lock file...
+  del /f /q ".git\index.lock"
+)
+
 where node >nul 2>nul
 if not errorlevel 1 (
   echo  [Loti Lot] Refreshing lottery data before upload...

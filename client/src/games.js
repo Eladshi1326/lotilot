@@ -6,25 +6,29 @@ export const GAMES_UI = {
     name: 'לוטו',
     emoji: '🎱',
     desc: '6 מספרים (1–37) + המספר החזק',
-    schedule: 'הגרלות בימי שלישי ושבת ב־23:00'
+    schedule: 'הגרלות בימי שלישי ושבת ב־23:00',
+    prizeHint: '3 מספרים = 10 ₪ · 6 + חזק = הקופה'
   },
   chance: {
     name: "צ'אנס",
     emoji: '🃏',
     desc: 'קלף אחד לכל צורה',
-    schedule: 'עד שבע הגרלות ביום'
+    schedule: 'עד שבע הגרלות ביום',
+    prizeHint: 'קלף = ×0.5 · 2 = ×2 · 3 = ×20 · 4 = ×1000'
   },
   '777': {
     name: '777',
     emoji: '🎰',
     desc: '7 מספרים (1–70) מול 17 שמוגרלים',
-    schedule: 'שתי הגרלות ביום'
+    schedule: 'שתי הגרלות ביום',
+    prizeHint: '0 או 3 פגיעות = 5 ₪ · 7 פגיעות = 70,000 ₪'
   },
   '123': {
     name: '123',
     emoji: '🔢',
     desc: '3 ספרות (0–9), הסדר קובע',
-    schedule: 'הגרלה אחת ביום'
+    schedule: 'הגרלה אחת ביום',
+    prizeHint: 'פגיעה מדויקת = פי 600 מההשתתפות'
   }
 };
 
@@ -64,10 +68,48 @@ export function parseNextDate(dateStr, timeStr) {
 }
 
 export function formatMoney(n) {
-  if (!n && n !== 0) return null;
-  if (n >= 1000000) {
+  if (n === null || n === undefined) return null;
+  if (Math.abs(n) >= 1000000) {
     const m = n / 1000000;
     return (Number.isInteger(m) ? m : m.toFixed(1)) + ' מיליון ₪';
   }
-  return n.toLocaleString('he-IL') + ' ₪';
+  const rounded = Math.round(n * 100) / 100;
+  return rounded.toLocaleString('he-IL') + ' ₪';
+}
+
+// סכום עם סימן, לתצוגת רווח/הפסד
+export function formatSigned(n) {
+  if (n === null || n === undefined) return null;
+  const s = formatMoney(Math.abs(n));
+  return (n > 0 ? '+' : n < 0 ? '−' : '') + s;
+}
+
+// לוח ההגרלות הרשמי של מפעל הפיס (שעון ישראל).
+// א'–ה' = weekday, יום שישי/ערב חג = friday, מוצ"ש = saturday
+export const DRAW_TIMES = {
+  lotto:   { weekday: [], friday: [], saturday: ['23:15'], note: 'שלישי ושבת בסביבות 23:15' },
+  chance:  {
+    weekday: ['09:00', '11:00', '13:00', '15:00', '17:00', '19:00', '21:00'],
+    friday: ['10:00', '12:00', '14:00'],
+    saturday: ['21:30', '23:30']
+  },
+  '777':   { weekday: ['13:30', '19:30'], friday: ['13:30'], saturday: ['21:30'] },
+  '123':   { weekday: ['18:00'], friday: ['13:00'], saturday: ['21:30'] }
+};
+
+// שעות ההגרלה של היום לפי סוג היום
+export function todayDrawTimes(game, date = new Date()) {
+  const t = DRAW_TIMES[game];
+  if (!t) return [];
+  const day = date.getDay(); // 0=ראשון, 5=שישי, 6=שבת
+  if (day === 5) return t.friday;
+  if (day === 6) return t.saturday;
+  return t.weekday;
+}
+
+// האם שעה מסוימת כבר עברה היום
+export function timePassed(hhmm, date = new Date()) {
+  const m = /^(\d{1,2}):(\d{2})$/.exec(hhmm);
+  if (!m) return false;
+  return date.getHours() * 60 + date.getMinutes() >= Number(m[1]) * 60 + Number(m[2]);
 }

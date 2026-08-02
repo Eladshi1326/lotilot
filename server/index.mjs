@@ -1,10 +1,11 @@
-// לוטי לוט — השרת המקומי: כל המשחקים (לוטו, צ'אנס, 777, 123)
+// לוטי לוט — השרת המקומי. שומר כרטיסים בקובץ, ומשתמש באותה לוגיקה כמו הענן.
 import express from 'express';
 import { readFileSync, writeFileSync, renameSync, existsSync, mkdirSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
-import { GAMES, GAME_KEYS, isValidGame } from './games.mjs';
+import { GAMES, GAME_KEYS, isValidGame, sortDraws } from './games.mjs';
 import { loadLive, mergeDraws, buildNext } from './live-merge.mjs';
+import { buildState, submitPick } from './api-core.mjs';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const DATA_DIR = join(__dirname, 'data');
@@ -14,14 +15,12 @@ const PORT = process.env.PORT || 3001;
 
 mkdirSync(DATA_DIR, { recursive: true });
 
-// ---------- אחסון כרטיסים ----------
+// ---------- מחסן כרטיסים מבוסס קובץ ----------
 let store = { seq: 0, picks: [] };
 if (existsSync(PICKS_FILE)) {
   try {
     store = JSON.parse(readFileSync(PICKS_FILE, 'utf8'));
     if (!Array.isArray(store.picks)) store = { seq: 0, picks: [] };
-    // כרטיסים מגרסה קודמת (בלי משחק) הם כרטיסי לוטו
-    for (const p of store.picks) if (!p.game) p.game = 'lotto';
   } catch {
     console.warn('picks.json פגום — מתחיל מאפס');
     store = { seq: 0, picks: [] };
@@ -38,63 +37,50 @@ function save() {
   }, 100);
 }
 
-function publicPick(p) {
-  return { id: p.id, game: p.game, name: p.name, numbers: p.numbers, strong: p.strong, ts: p.ts };
+function makeRow(p) {
+  return {
+    id: ++store.seq,
+    clientId: p.clientId,
+    game: p.game,
+    drawId: p.drawId,
+    name: p.name || '',
+    numbers: p.numbers,
+    strong: p.strong ?? null,
+    ts: Date.now()
+  };
 }
 
-const app = express();
-app.use(express.json());
-
-// כל הכרטיסים (אפשר לסנן לפי משחק)
-app.get('/api/picks', (req, res) => {
-  const { game } = req.query;
-  let picks = store.picks;
-  if (game && isValidGame(game)) picks = picks.filter((p) => p.game === game);
-  const counts = {};
-  for (const key of GAME_KEYS) counts[key] = store.picks.filter((p) => p.game === key).length;
-  res.json({
-    count: picks.length,
-    total: store.picks.length,
-    counts,
-    picks: [...picks].reverse().map(publicPick)
-  });
-});
-
-// כל הכרטיסים שלי, לפי משחק
-app.get('/api/my-picks', (req, res) => {
-  const { clientId } = req.query;
-  const mine = {};
-  for (const key of GAME_KEYS) {
-    const p = store.picks.find((x) => x.clientId === clientId && x.game === key);
-    mine[key] = p ? publicPick(p) : null;
+const fileStore = {
+  async picksInWindow(game, minDrawId) {
+    return store.picks.filter((p) => p.game === game && p.drawId >= minDrawId);
+  },
+  async picksByClient(clientId) {
+    return store.picks.filter((p) => p.clientId === clientId).slice(-200);
+  },
+  async findPick(clientId, game, drawId) {
+    return store.picks.find((x) => x.clientId === clientId && x.game === game && x.drawId === drawId) || null;
+  },
+  async insert(p) {
+    const existing = store.picks.find(
+      (x) => x.clientId === p.clientId && x.game === p.game && x.drawId === p.drawId
+    );
+    if (existing) return { conflict: true, pick: existing };
+    const row = makeRow(p);
+    store.picks.push(row);
+    save();
+    return { pick: row };
+  },
+  async insertMany(rows) {
+    const added = [];
+    for (const p of rows) {
+      const r = await this.insert(p);
+      if (r.pick && !r.conflict) added.push(r.pick);
+    }
+    return added;
   }
-  res.json({ picks: mine });
-});
+};
 
-// מילוי כרטיס — פעם אחת לכל משתמש בכל משחק
-app.post('/api/pick', (req, res) => {
-  const { clientId } = req.body || {};
-  let { name, game } = req.body || {};
-  if (!clientId || typeof clientId !== 'string' || clientId.length > 64) {
-    return res.status(400).json({ error: 'bad clientId' });
-  }
-  if (!game) game = 'lotto';
-  if (!isValidGame(game)) return res.status(400).json({ error: 'bad game' });
-
-  const existing = store.picks.find((p) => p.clientId === clientId && p.game === game);
-  if (existing) {
-    return res.status(409).json({ error: 'already picked', pick: publicPick(existing) });
-  }
-  if (typeof name !== 'string') name = '';
-  name = name.replace(/[<>]/g, '').trim().slice(0, 20);
-
-  const { numbers, strong } = GAMES[game].randomPick();
-  const pick = { id: ++store.seq, clientId, game, name, numbers, strong, ts: Date.now() };
-  store.picks.push(pick);
-  save();
-  res.status(201).json({ pick: publicPick(pick) });
-});
-
+// ---------- נתוני הגרלות ----------
 function readJson(file, fallback) {
   try {
     if (existsSync(file)) return JSON.parse(readFileSync(file, 'utf8'));
@@ -102,36 +88,85 @@ function readJson(file, fallback) {
   return fallback;
 }
 
-// היסטוריית הגרלות אמיתית לפי משחק (כולל מה שהסוכן הביא)
-app.get('/api/draws', async (req, res) => {
-  const game = isValidGame(req.query.game) ? req.query.game : 'lotto';
-  const base = readJson(join(DATA_DIR, 'history-' + game + '.json'), { game, updatedAt: null, count: 0, draws: [] });
+async function loadDrawsAndNext() {
   const live = await loadLive();
-  const liveDraws = live && live.latest && live.latest[game] ? live.latest[game].draws : null;
-  const draws = mergeDraws(base.draws, liveDraws).slice(0, GAMES[game].historyCap);
-  res.setHeader('Cache-Control', 'no-cache');
-  res.json({
-    game,
-    updatedAt: (live && live.updatedAt) || base.updatedAt,
-    source: liveDraws ? 'bot' : 'local',
-    count: draws.length,
-    draws
-  });
-});
-
-// פרטי ההגרלות הבאות
-app.get('/api/next', async (req, res) => {
-  const bundled = readJson(join(DATA_DIR, 'next-info.json'), {});
-  const live = await loadLive();
+  const drawsByGame = {};
   const latestIdByGame = {};
   for (const key of GAME_KEYS) {
     const base = readJson(join(DATA_DIR, 'history-' + key + '.json'), { draws: [] });
-    const fromLive = live && live.latest && live.latest[key] && live.latest[key].draws && live.latest[key].draws[0];
-    const id = (fromLive && fromLive.id) || (base.draws[0] && base.draws[0].id);
-    if (Number.isFinite(id)) latestIdByGame[key] = id;
+    const liveDraws = live && live.latest && live.latest[key] ? live.latest[key].draws : null;
+    const merged = mergeDraws(base.draws, liveDraws).slice(0, GAMES[key].historyCap);
+    drawsByGame[key] = merged;
+    if (merged[0]) latestIdByGame[key] = merged[0].id;
   }
+  const nextInfo = buildNext(readJson(join(DATA_DIR, 'next-info.json'), {}), live, latestIdByGame);
+  return { drawsByGame, nextInfo, live };
+}
+
+// חיתוך לעמוד אחד + חיפוש לפי מספר הגרלה או תאריך
+export function pageDraws(all, game, q) {
+  const limit = Math.min(Math.max(Number(q.limit) || 10, 1), 100);
+  const offset = Math.max(Number(q.offset) || 0, 0);
+  const term = (q.q || '').trim();
+  const filtered = term
+    ? all.filter((d) => String(d.id).includes(term) || String(d.date).includes(term))
+    : all;
+  return {
+    game,
+    total: filtered.length,
+    totalAll: all.length,
+    offset,
+    limit,
+    draws: filtered.slice(offset, offset + limit)
+  };
+}
+
+const app = express();
+app.use(express.json());
+
+// המצב המלא של עמוד משחק
+app.get('/api/state', async (req, res) => {
+  try {
+    const game = isValidGame(req.query.game) ? req.query.game : 'lotto';
+    const { drawsByGame, nextInfo, live } = await loadDrawsAndNext();
+    const state = await buildState({
+      store: fileStore,
+      drawsByGame,
+      nextInfo,
+      game,
+      clientId: req.query.clientId || ''
+    });
+    res.setHeader('Cache-Control', 'no-cache');
+    res.json({ ...state, next: nextInfo, dataUpdatedAt: live && live.updatedAt ? live.updatedAt : null });
+  } catch (err) {
+    res.status(500).json({ error: 'server error: ' + err.message });
+  }
+});
+
+// מילוי כרטיס
+app.post('/api/pick', async (req, res) => {
+  try {
+    const { drawsByGame, nextInfo } = await loadDrawsAndNext();
+    const r = await submitPick({ store: fileStore, drawsByGame, nextInfo, body: req.body });
+    res.status(r.status).json(r.data);
+  } catch (err) {
+    res.status(500).json({ error: 'server error: ' + err.message });
+  }
+});
+
+// היסטוריית הגרלות — מוגשת בעמודים קטנים כדי לא לשלוח אלפי שורות בכל טעינה
+app.get('/api/draws', async (req, res) => {
+  const game = isValidGame(req.query.game) ? req.query.game : 'lotto';
+  const { drawsByGame } = await loadDrawsAndNext();
   res.setHeader('Cache-Control', 'no-cache');
-  res.json(buildNext(bundled, live, latestIdByGame));
+  res.json(pageDraws(sortDraws(drawsByGame[game] || []), game, req.query));
+});
+
+// מועדי ההגרלות הבאות
+app.get('/api/next', async (req, res) => {
+  const { nextInfo } = await loadDrawsAndNext();
+  res.setHeader('Cache-Control', 'no-cache');
+  res.json(nextInfo);
 });
 
 // הגשת האתר הבנוי (production) אם קיים

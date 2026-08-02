@@ -1,10 +1,38 @@
-// לוטי לוט — הגדרות כל המשחקים: פענוח CSV, הגרלת כרטיס רנדומלי, ולידציה
-// משותף לשרת המקומי, לפונקציית הענן ולסקריפט העדכון
+// לוטי לוט — הגדרות כל המשחקים: פענוח תוצאות, הגרלת כרטיס, מחיר וחישוב זכייה
+// משותף לשרת המקומי, לפונקציה בענן ולסוכן.
+//
+// המחירים והפרסים לקוחים מהתקנון הרשמי של מפעל הפיס (pais.co.il).
+// חלק מפרסי הלוטו נקבעים לפי מחזור ההגרלה ולכן מסומנים כהערכה.
 
 import { randomInt } from 'node:crypto';
 
 export const CARD_VALUES = ['7', '8', '9', '10', 'J', 'Q', 'K', 'A'];
 export const SUITS = ['clubs', 'diamonds', 'hearts', 'spades']; // תלתן, יהלום, לב, עלה
+
+// תאריך בפורמט DD/MM/YYYY -> חותמת זמן, לצורך מיון נכון
+export function drawTs(date) {
+  if (typeof date !== 'string') return 0;
+  const m = date.match(/(\d{1,2})\/(\d{1,2})\/(\d{4})/);
+  if (!m) return 0;
+  return Date.UTC(Number(m[3]), Number(m[2]) - 1, Number(m[1]));
+}
+
+// חשוב: מספרי ההגרלה של הלוטו התאפסו ב-1999 (הגרלה 9934 היא מ-1999!),
+// לכן תמיד ממיינים לפי תאריך ולא לפי מספר ההגרלה.
+export function sortDraws(draws) {
+  return [...draws].sort((a, b) => {
+    const d = drawTs(b.date) - drawTs(a.date);
+    return d !== 0 ? d : b.id - a.id;
+  });
+}
+
+// טבלת הזכיות הרשמית של ההגרלה (כמה זכו בכל מקום ובכמה) — נשלפת מהפיס על ידי הסוכן.
+// אם היא קיימת, הסכום מדויק; אחרת נופלים להערכה על בסיס הגרלות אחרונות.
+function officialTier(draw, key) {
+  if (!draw || !Array.isArray(draw.prizes)) return null;
+  const t = draw.prizes.find((x) => x.key === key);
+  return t && Number.isFinite(t.prize) ? t : null;
+}
 
 export const GAMES = {
   lotto: {
@@ -15,6 +43,10 @@ export const GAMES = {
     historyCap: 5000,
     idFirst: true, // בלוטו: הגרלה,תאריך ; בשאר: תאריך,הגרלה
     schedule: 'הגרלות בימי שלישי ושבת ב־23:00',
+    drawsPerDay: 1,
+    price: 3, // ₪ לטבלה אחת (בפועל טופס מינימלי הוא 2 טבלאות = 6 ₪)
+    priceNote: 'טבלה אחת בטופס רגיל',
+    prizesExact: false, // פרסי הלוטו נקבעים לפי מחזור ההגרלה
     parseRow(cells) {
       const numbers = cells.slice(2, 8).map(Number);
       if (numbers.some((n) => !Number.isFinite(n))) return null;
@@ -31,6 +63,35 @@ export const GAMES = {
       for (let i = 0; i < 6; i++) numbers.push(pool.splice(randomInt(pool.length), 1)[0]);
       numbers.sort((a, b) => a - b);
       return { numbers, strong: randomInt(1, 8) };
+    },
+    // 6 מתוך 37 + מספר חזק. אם יש טבלת זכיות רשמית — משתמשים בסכום האמיתי.
+    evaluate(pick, draw) {
+      const hits = pick.numbers.filter((n) => draw.numbers.includes(n)).length;
+      const strongHit = pick.strong != null && pick.strong === draw.strong;
+      const tiers = [
+        { need: 6, strong: true,  key: '6+s', est: 5000000, label: '6 + חזק' },
+        { need: 6, strong: false, key: '6',   est: 750000,  label: '6 מספרים' },
+        { need: 5, strong: true,  key: '5+s', est: 6000,    label: '5 + חזק' },
+        { need: 5, strong: false, key: '5',   est: 900,     label: '5 מספרים' },
+        { need: 4, strong: true,  key: '4+s', est: 180,     label: '4 + חזק' },
+        { need: 4, strong: false, key: '4',   est: 60,      label: '4 מספרים' },
+        { need: 3, strong: true,  key: '3+s', est: 45,      label: '3 + חזק' },
+        { need: 3, strong: false, key: '3',   est: 10,      label: '3 מספרים' }
+      ];
+      for (const t of tiers) {
+        if (hits >= t.need && (!t.strong || strongHit)) {
+          const official = officialTier(draw, t.key);
+          return {
+            hits,
+            strongHit,
+            prize: official ? official.prize : t.est,
+            winnersInTier: official ? official.winners : null,
+            label: t.label,
+            exact: Boolean(official)
+          };
+        }
+      }
+      return { hits, strongHit, prize: 0, label: null, exact: true };
     }
   },
 
@@ -42,14 +103,25 @@ export const GAMES = {
     historyCap: 4000,
     idFirst: false,
     schedule: 'שבע הגרלות ביום ברוב ימות השבוע',
+    drawsPerDay: 7,
+    price: 5, // דמי השתתפות מינימליים ברב צ'אנס
+    priceNote: 'רב צ׳אנס, השתתפות מינימלית',
+    prizesExact: true, // הפרסים כפולה קבועה של דמי ההשתתפות
     parseRow(cells) {
-      // תלתן, יהלום, לב, עלה
       const cards = cells.slice(2, 6).map((c) => String(c).trim().toUpperCase());
       if (cards.length < 4 || cards.some((c) => !CARD_VALUES.includes(c))) return null;
       return { numbers: cards, strong: null };
     },
     randomPick() {
       return { numbers: SUITS.map(() => CARD_VALUES[randomInt(CARD_VALUES.length)]), strong: null };
+    },
+    // רב צ'אנס: 4 קלפים ×1000, 3 ×20, 2 ×2, קלף אחד ×0.5 מדמי ההשתתפות
+    evaluate(pick, draw) {
+      let hits = 0;
+      for (let i = 0; i < 4; i++) if (pick.numbers[i] === draw.numbers[i]) hits++;
+      const mult = { 4: 1000, 3: 20, 2: 2, 1: 0.5 }[hits] || 0;
+      const labels = { 4: 'כל 4 הקלפים!', 3: '3 קלפים', 2: '2 קלפים', 1: 'קלף אחד' };
+      return { hits, prize: mult * this.price, label: labels[hits] || null, exact: true };
     }
   },
 
@@ -61,8 +133,11 @@ export const GAMES = {
     historyCap: 3000,
     idFirst: false,
     schedule: 'שתי הגרלות ביום ברוב ימות השבוע',
+    drawsPerDay: 2,
+    price: 7, // עלות לצירוף
+    priceNote: 'צירוף אחד',
+    prizesExact: true, // הפרסים קבועים ואינם מתחלקים
     parseRow(cells) {
-      // 17 מספרים מוגרלים מתוך 1-70; השחקן מסמן 7
       const numbers = cells.slice(2, 19).map(Number);
       if (numbers.length < 17 || numbers.some((n) => !Number.isFinite(n))) return null;
       const winners = cells[19] === '' || cells[19] === undefined ? null : Number(cells[19]);
@@ -74,6 +149,20 @@ export const GAMES = {
       for (let i = 0; i < 7; i++) numbers.push(pool.splice(randomInt(pool.length), 1)[0]);
       numbers.sort((a, b) => a - b);
       return { numbers, strong: null };
+    },
+    // 7 מסומנים מול 17 שהוגרלו — פרסים קבועים לגמרי
+    evaluate(pick, draw) {
+      const hits = pick.numbers.filter((n) => draw.numbers.includes(n)).length;
+      const table = { 7: 70000, 6: 500, 5: 50, 4: 20, 3: 5, 0: 5 };
+      const labels = { 7: 'כל 7 המספרים!', 6: '6 פגיעות', 5: '5 פגיעות', 4: '4 פגיעות', 3: '3 פגיעות', 0: 'אפס פגיעות (גם זה זוכה!)' };
+      const official = officialTier(draw, String(hits));
+      return {
+        hits,
+        prize: official ? official.prize : table[hits] || 0,
+        winnersInTier: official ? official.winners : null,
+        label: labels[hits] || null,
+        exact: true
+      };
     }
   },
 
@@ -85,8 +174,12 @@ export const GAMES = {
     historyCap: 3000,
     idFirst: false,
     schedule: 'הגרלה אחת ביום',
+    drawsPerDay: 1,
+    price: 5, // סכום ההשתתפות לטבלה (ניתן לבחור 1–500 ₪)
+    priceNote: 'סכום השתתפות נבחר',
+    prizesExact: true, // פי 600 מסכום ההשתתפות
     parseRow(cells) {
-      // בקובץ העמודות בסדר 3,2,1 — הופכים לסדר טבעי: ספרה 1, ספרה 2, ספרה 3
+      // בקובץ העמודות בסדר 3,2,1 — הופכים לסדר טבעי
       const raw = [cells[2], cells[3], cells[4]].map(Number);
       if (raw.some((n) => !Number.isFinite(n) || n < 0 || n > 9)) return null;
       const totalPrizes = cells[5] === '' || cells[5] === undefined ? null : Number(cells[5]);
@@ -94,17 +187,29 @@ export const GAMES = {
     },
     randomPick() {
       return { numbers: [randomInt(10), randomInt(10), randomInt(10)], strong: null };
+    },
+    // רק פגיעה מדויקת בשלוש הספרות ובסדר הנכון — פי 600
+    evaluate(pick, draw) {
+      const exactHit = pick.numbers.every((d, i) => d === draw.numbers[i]);
+      const hits = pick.numbers.filter((d, i) => d === draw.numbers[i]).length;
+      return {
+        hits,
+        prize: exactHit ? this.price * 600 : 0,
+        label: exactHit ? 'פגיעה מדויקת!' : null,
+        exact: true
+      };
     }
   }
 };
 
-export const GAME_KEYS = Object.keys(GAMES);
+// סדר מפורש — לא Object.keys, כי JavaScript דוחף מפתחות שנראים כמו מספרים ('777','123') לראש
+export const GAME_KEYS = ['lotto', 'chance', '777', '123'];
 
 export function isValidGame(key) {
   return Object.prototype.hasOwnProperty.call(GAMES, key);
 }
 
-// פענוח CSV מלא של משחק: מחזיר רשימת הגרלות (חדש -> ישן, כמו בקובץ)
+// פענוח CSV מלא של משחק: מחזיר רשימת הגרלות ממוינת מהחדשה לישנה
 export function parseGameCsv(gameKey, text) {
   const game = GAMES[gameKey];
   if (!game) return [];
@@ -121,5 +226,13 @@ export function parseGameCsv(gameKey, text) {
     if (!parsed) continue;
     draws.push({ id, date: dateCell, ...parsed });
   }
-  return draws;
+  return sortDraws(draws);
+}
+
+// חישוב זכייה של כרטיס מול תוצאת הגרלה
+export function evaluatePick(pick, draw) {
+  const game = GAMES[pick.game];
+  if (!game || !draw || !Array.isArray(draw.numbers)) return null;
+  const res = game.evaluate(pick, draw);
+  return { ...res, cost: game.price, net: res.prize - game.price };
 }

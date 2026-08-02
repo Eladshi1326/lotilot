@@ -1,21 +1,17 @@
-// לוטי לוט — ה־API בענן: כל המשחקים (Netlify Functions + Supabase REST)
-//   GET  /api/picks?game=   — הכרטיסים (של כולם)
-//   POST /api/pick          — מילוי כרטיס {clientId, name?, game}
-//   GET  /api/my-picks      — הכרטיסים שלי בכל המשחקים
-//   GET  /api/draws?game=   — היסטוריית הגרלות אמיתית
-//   GET  /api/next          — פרטי ההגרלות הבאות
-// הפיס חוסם שרתי ענן, לכן ההיסטוריה מגיעה מה־seed הארוז; מנסים בכל זאת לרענן חי.
+// לוטי לוט — ה-API בענן (Netlify Functions + Supabase REST).
+// הלוגיקה עצמה יושבת ב-server/api-core.mjs — כאן רק החיבור למסד ולנתוני ההגרלות.
 
-import { GAMES, GAME_KEYS, isValidGame, parseGameCsv } from '../../server/games.mjs';
+import { GAMES, GAME_KEYS, isValidGame, parseGameCsv, sortDraws } from '../../server/games.mjs';
 import { loadLive, mergeDraws, buildNext } from '../../server/live-merge.mjs';
+import { buildState, submitPick } from '../../server/api-core.mjs';
 import seedAll from '../../server/data/all-history.seed.mjs';
 
 const NEXT_URL = 'https://www.pais.co.il/include/getNextLotteryDate.ashx?type=';
 const UA =
   'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0 Safari/537.36';
+const PICK_COLS = 'id,client_id,game,draw_id,name,numbers,strong,created_at';
 
-const PICK_COLS = 'id,game,name,numbers,strong,created_at';
-
+// ---------- Supabase ----------
 function supaConfig() {
   const url = (process.env.SUPABASE_URL || '').replace(/\/+$/, '');
   const key = process.env.SUPABASE_SERVICE_ROLE_KEY || '';
@@ -42,42 +38,90 @@ async function rest(cfg, method, path, body, extraHeaders = {}) {
   return { status: res.status, ok: res.ok, data };
 }
 
-function mapPick(row) {
+const fromRow = (r) => ({
+  id: r.id,
+  clientId: r.client_id,
+  game: r.game || 'lotto',
+  drawId: r.draw_id,
+  name: r.name || '',
+  numbers: r.numbers,
+  strong: r.strong,
+  ts: new Date(r.created_at).getTime()
+});
+
+const toRow = (p) => ({
+  client_id: p.clientId,
+  game: p.game,
+  draw_id: p.drawId,
+  name: p.name || '',
+  numbers: p.numbers,
+  strong: p.strong ?? null
+});
+
+function makeStore(cfg) {
   return {
-    id: row.id,
-    game: row.game || 'lotto',
-    name: row.name,
-    numbers: row.numbers,
-    strong: row.strong,
-    ts: new Date(row.created_at).getTime()
+    // רק חלון ההגרלות שמוצג — כך מספר השורות הנקראות נשאר קטן וקבוע
+    async picksInWindow(game, minDrawId) {
+      const r = await rest(
+        cfg, 'GET',
+        'picks?select=' + PICK_COLS + '&game=eq.' + encodeURIComponent(game) +
+          '&draw_id=gte.' + minDrawId + '&order=id.desc&limit=500'
+      );
+      if (!r.ok || !Array.isArray(r.data)) throw new Error('db read failed');
+      return r.data.map(fromRow);
+    },
+    async picksByClient(clientId) {
+      const r = await rest(
+        cfg, 'GET',
+        'picks?select=' + PICK_COLS + '&client_id=eq.' + encodeURIComponent(clientId) +
+          '&order=id.desc&limit=200'
+      );
+      if (!r.ok || !Array.isArray(r.data)) return [];
+      return r.data.map(fromRow);
+    },
+    async findPick(clientId, game, drawId) {
+      const r = await rest(
+        cfg, 'GET',
+        'picks?select=' + PICK_COLS +
+          '&client_id=eq.' + encodeURIComponent(clientId) +
+          '&game=eq.' + encodeURIComponent(game) +
+          '&draw_id=eq.' + drawId + '&limit=1'
+      );
+      const row = r.ok && Array.isArray(r.data) && r.data[0];
+      return row ? fromRow(row) : null;
+    },
+    async insert(p) {
+      const r = await rest(cfg, 'POST', 'picks?select=' + PICK_COLS, toRow(p), {
+        Prefer: 'return=representation'
+      });
+      if (r.status === 409 || (r.data && r.data.code === '23505')) {
+        const ex = await rest(
+          cfg, 'GET',
+          'picks?select=' + PICK_COLS +
+            '&client_id=eq.' + encodeURIComponent(p.clientId) +
+            '&game=eq.' + encodeURIComponent(p.game) +
+            '&draw_id=eq.' + p.drawId + '&limit=1'
+        );
+        const row = ex.ok && Array.isArray(ex.data) && ex.data[0];
+        return { conflict: true, pick: row ? fromRow(row) : null };
+      }
+      if (!r.ok || !Array.isArray(r.data) || !r.data.length) {
+        return { pick: null, detail: r.data };
+      }
+      return { pick: fromRow(r.data[0]) };
+    },
+    async insertMany(rows) {
+      if (!rows.length) return [];
+      const r = await rest(cfg, 'POST', 'picks?select=' + PICK_COLS, rows.map(toRow), {
+        Prefer: 'return=representation,resolution=ignore-duplicates'
+      });
+      if (!r.ok || !Array.isArray(r.data)) return [];
+      return r.data.map(fromRow);
+    }
   };
 }
 
-function json(data, status = 200, headers = {}) {
-  return new Response(JSON.stringify(data), {
-    status,
-    headers: { 'content-type': 'application/json; charset=utf-8', ...headers }
-  });
-}
-
-function seedFor(gameKey) {
-  const g = seedAll && seedAll.games && seedAll.games[gameKey];
-  return g && Array.isArray(g.draws) ? g : { game: gameKey, updatedAt: null, count: 0, draws: [] };
-}
-
-async function fetchWithTimeout(url, ms) {
-  const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), ms);
-  try {
-    return await fetch(url, {
-      signal: controller.signal,
-      headers: { 'User-Agent': UA, Accept: 'text/csv,application/text,application/json,*/*' }
-    });
-  } finally {
-    clearTimeout(timer);
-  }
-}
-
+// ---------- נתוני הגרלות ----------
 function decodeBuf(buf) {
   // דפי האתר UTF-8, קבצי התוצאות windows-1255 — מזהים לבד
   try {
@@ -91,87 +135,53 @@ function decodeBuf(buf) {
   }
 }
 
-async function handleDraws(gameKey) {
-  const game = GAMES[gameKey];
-  const live = await loadLive();
-  const liveDraws = live && live.latest && live.latest[gameKey] ? live.latest[gameKey].draws : null;
-
-  // 1. הכי טוב: קובץ התוצאות המלא ישירות מהפיס
+async function fetchWithTimeout(url, ms) {
+  const c = new AbortController();
+  const timer = setTimeout(() => c.abort(), ms);
   try {
-    const res = await fetchWithTimeout(game.csvUrl, 4000);
-    if (!res.ok) throw new Error('HTTP ' + res.status);
-    const draws = parseGameCsv(gameKey, decodeBuf(await res.arrayBuffer())).slice(0, game.historyCap);
-    if (draws.length === 0) throw new Error('empty csv');
-    return json(
-      { game: gameKey, updatedAt: new Date().toISOString(), source: 'live', count: draws.length, draws },
-      200,
-      {
-        'cache-control': 'public, max-age=0, must-revalidate',
-        'netlify-cdn-cache-control': 'public, s-maxage=600, stale-while-revalidate=86400'
-      }
-    );
-  } catch (err) {
-    // 2. ההיסטוריה הארוזה + ההגרלות החדשות שהסוכן הביא
-    const seed = seedFor(gameKey);
-    const draws = mergeDraws(seed.draws, liveDraws).slice(0, game.historyCap);
-    return json(
-      {
-        game: gameKey,
-        updatedAt: (live && live.updatedAt) || seed.updatedAt,
-        source: liveDraws ? 'bot' : 'bundled',
-        count: draws.length,
-        draws,
-        note: 'pais direct failed: ' + err.message
-      },
-      200,
-      { 'netlify-cdn-cache-control': 'public, s-maxage=300, stale-while-revalidate=86400' }
-    );
+    return await fetch(url, { signal: c.signal, headers: { 'User-Agent': UA } });
+  } finally {
+    clearTimeout(timer);
   }
 }
 
-async function handleNext() {
-  const bundled = (seedAll && seedAll.next) || {};
-  const live = await loadLive();
+function seedFor(key) {
+  const g = seedAll && seedAll.games && seedAll.games[key];
+  return g && Array.isArray(g.draws) ? g : { updatedAt: null, draws: [] };
+}
 
-  // מספר ההגרלה האחרונה בכל משחק — לחישוב מספר ההגרלה הבאה כשהפיס לא מספק אותו
+// היסטוריה מלאה לכל המשחקים: ארוז באתר + מה שהסוכן הביא
+async function loadAllDraws() {
+  const live = await loadLive();
+  const drawsByGame = {};
   const latestIdByGame = {};
   for (const key of GAME_KEYS) {
-    const fromLive = live && live.latest && live.latest[key] && live.latest[key].draws && live.latest[key].draws[0];
-    const fromSeed = seedFor(key).draws[0];
-    const id = (fromLive && fromLive.id) || (fromSeed && fromSeed.id);
-    if (Number.isFinite(id)) latestIdByGame[key] = id;
+    const liveDraws = live && live.latest && live.latest[key] ? live.latest[key].draws : null;
+    const merged = mergeDraws(seedFor(key).draws, liveDraws).slice(0, GAMES[key].historyCap);
+    drawsByGame[key] = merged;
+    if (merged[0]) latestIdByGame[key] = merged[0].id;
   }
+  const nextInfo = buildNext((seedAll && seedAll.next) || {}, live, latestIdByGame);
+  return { drawsByGame, nextInfo, live };
+}
 
-  const out = buildNext(bundled, live, latestIdByGame);
+// היסטוריה מלאה למשחק אחד — מנסה קודם ישירות מהפיס
+async function fullHistory(gameKey, fallbackDraws) {
+  try {
+    const res = await fetchWithTimeout(GAMES[gameKey].csvUrl, 5000);
+    if (!res.ok) throw new Error('HTTP ' + res.status);
+    const draws = parseGameCsv(gameKey, decodeBuf(await res.arrayBuffer())).slice(0, GAMES[gameKey].historyCap);
+    if (draws.length === 0) throw new Error('empty');
+    return { draws, source: 'live' };
+  } catch {
+    return { draws: sortDraws(fallbackDraws), source: 'bundled' };
+  }
+}
 
-  // מנסים גם ישירות מהפיס — הכי טרי, אם השרת לא חסום
-  await Promise.all(
-    GAME_KEYS.map(async (key) => {
-      try {
-        const res = await fetchWithTimeout(NEXT_URL + GAMES[key].nextType, 2500);
-        if (!res.ok) return;
-        const arr = await res.json();
-        const it = Array.isArray(arr) ? arr[0] : null;
-        if (it && it.displayDate) {
-          out[key] = {
-            ...(out[key] || {}),
-            date: it.displayDate,
-            time: it.displayTime || null,
-            firstPrize: it.firstPrize || (out[key] && out[key].firstPrize) || null,
-            secondPrize: it.secondPrize || (out[key] && out[key].secondPrize) || null,
-            fetchedAt: new Date().toISOString()
-          };
-          if (it.LotteryNumber) {
-            out[key].drawNumber = it.LotteryNumber;
-            out[key].estimated = false;
-          }
-        }
-      } catch { /* נשארים עם מה שיש */ }
-    })
-  );
-
-  return json(out, 200, {
-    'netlify-cdn-cache-control': 'public, s-maxage=120, stale-while-revalidate=3600'
+function json(data, status = 200, headers = {}) {
+  return new Response(JSON.stringify(data), {
+    status,
+    headers: { 'content-type': 'application/json; charset=utf-8', ...headers }
   });
 }
 
@@ -179,100 +189,83 @@ export default async (req) => {
   try {
     const url = new URL(req.url);
     const path = url.pathname.replace(/\/+$/, '');
+    const gameParam = url.searchParams.get('game');
+    const game = isValidGame(gameParam) ? gameParam : 'lotto';
 
     if (path === '/api/draws' && req.method === 'GET') {
-      const gameKey = isValidGame(url.searchParams.get('game')) ? url.searchParams.get('game') : 'lotto';
-      return await handleDraws(gameKey);
+      const { drawsByGame } = await loadAllDraws();
+      const { draws, source } = await fullHistory(game, drawsByGame[game] || []);
+      // מוגש בעמודים קטנים — אף פעם לא שולחים אלפי הגרלות בבת אחת
+      const limit = Math.min(Math.max(Number(url.searchParams.get('limit')) || 10, 1), 100);
+      const offset = Math.max(Number(url.searchParams.get('offset')) || 0, 0);
+      const term = (url.searchParams.get('q') || '').trim();
+      const filtered = term
+        ? draws.filter((d) => String(d.id).includes(term) || String(d.date).includes(term))
+        : draws;
+      return json(
+        { game, source, total: filtered.length, totalAll: draws.length, offset, limit, draws: filtered.slice(offset, offset + limit) },
+        200,
+        { 'netlify-cdn-cache-control': 'public, s-maxage=600, stale-while-revalidate=86400' }
+      );
     }
 
     if (path === '/api/next' && req.method === 'GET') {
-      return await handleNext();
+      const { nextInfo } = await loadAllDraws();
+      // ניסיון רענון ישיר מהפיס — הכי טרי
+      await Promise.all(
+        GAME_KEYS.map(async (key) => {
+          try {
+            const res = await fetchWithTimeout(NEXT_URL + GAMES[key].nextType, 2500);
+            if (!res.ok) return;
+            const it = (await res.json())[0];
+            if (it && it.displayDate) {
+              nextInfo[key] = {
+                ...(nextInfo[key] || {}),
+                date: it.displayDate,
+                time: it.displayTime || null,
+                firstPrize: key === 'lotto' ? it.firstPrize || null : null
+              };
+              if (it.LotteryNumber) {
+                nextInfo[key].drawNumber = it.LotteryNumber;
+                nextInfo[key].estimated = false;
+              }
+            }
+          } catch { /* נשארים עם מה שיש */ }
+        })
+      );
+      return json(nextInfo, 200, {
+        'netlify-cdn-cache-control': 'public, s-maxage=120, stale-while-revalidate=3600'
+      });
     }
 
+    // מכאן והלאה צריך מסד נתונים
     const cfg = supaConfig();
     if (!cfg) {
       return json(
-        { error: 'Supabase עוד לא מחובר — צריך להגדיר SUPABASE_URL ו־SUPABASE_SERVICE_ROLE_KEY במשתני הסביבה של Netlify' },
+        { error: 'Supabase לא מחובר — חסרים SUPABASE_URL ו-SUPABASE_SERVICE_ROLE_KEY במשתני הסביבה של Netlify' },
         500
       );
     }
+    const store = makeStore(cfg);
 
-    if (path === '/api/picks' && req.method === 'GET') {
-      const game = url.searchParams.get('game');
-      let q = 'picks?select=' + PICK_COLS + '&order=id.desc&limit=2000';
-      if (isValidGame(game)) q += '&game=eq.' + encodeURIComponent(game);
-      const r = await rest(cfg, 'GET', q);
-      if (!r.ok || !Array.isArray(r.data)) return json({ error: 'db error', detail: r.data }, 500);
-
-      // ספירה כוללת לכל משחק (לתצוגת הטאבים)
-      const rc = await rest(cfg, 'GET', 'picks?select=game');
-      const counts = {};
-      for (const key of GAME_KEYS) counts[key] = 0;
-      let total = 0;
-      if (rc.ok && Array.isArray(rc.data)) {
-        total = rc.data.length;
-        for (const row of rc.data) {
-          const g = row.game || 'lotto';
-          if (counts[g] !== undefined) counts[g]++;
-        }
-      }
-      return json(
-        { count: r.data.length, total, counts, picks: r.data.map(mapPick) },
-        200,
-        { 'netlify-cdn-cache-control': 'public, s-maxage=5, stale-while-revalidate=30' }
-      );
-    }
-
-    if (path === '/api/my-picks' && req.method === 'GET') {
-      const clientId = url.searchParams.get('clientId') || '';
-      const mine = {};
-      for (const key of GAME_KEYS) mine[key] = null;
-      if (clientId) {
-        const r = await rest(
-          cfg, 'GET',
-          'picks?select=' + PICK_COLS + '&client_id=eq.' + encodeURIComponent(clientId)
-        );
-        if (!r.ok || !Array.isArray(r.data)) return json({ error: 'db error', detail: r.data }, 500);
-        for (const row of r.data) {
-          const g = row.game || 'lotto';
-          if (mine[g] === null) mine[g] = mapPick(row);
-        }
-      }
-      return json({ picks: mine });
+    if (path === '/api/state' && req.method === 'GET') {
+      const { drawsByGame, nextInfo, live } = await loadAllDraws();
+      const state = await buildState({
+        store,
+        drawsByGame,
+        nextInfo,
+        game,
+        clientId: url.searchParams.get('clientId') || ''
+      });
+      return json({ ...state, next: nextInfo, dataUpdatedAt: live && live.updatedAt ? live.updatedAt : null }, 200, { 'cache-control': 'no-store' });
     }
 
     if (path === '/api/pick' && req.method === 'POST') {
       let body = {};
       try { body = await req.json(); } catch { /* גוף ריק */ }
-      const clientId = body.clientId;
-      let { name, game } = body;
-      if (!clientId || typeof clientId !== 'string' || clientId.length > 64) {
-        return json({ error: 'bad clientId' }, 400);
-      }
-      if (!game) game = 'lotto';
-      if (!isValidGame(game)) return json({ error: 'bad game' }, 400);
-      if (typeof name !== 'string') name = '';
-      name = name.replace(/[<>]/g, '').trim().slice(0, 20);
-
-      const { numbers, strong } = GAMES[game].randomPick();
-      const ins = await rest(
-        cfg, 'POST', 'picks?select=' + PICK_COLS,
-        { client_id: clientId, game, name, numbers, strong },
-        { Prefer: 'return=representation' }
-      );
-
-      if (ins.status === 409 || (ins.data && ins.data.code === '23505')) {
-        const ex = await rest(
-          cfg, 'GET',
-          'picks?select=' + PICK_COLS + '&client_id=eq.' + encodeURIComponent(clientId) + '&game=eq.' + encodeURIComponent(game) + '&limit=1'
-        );
-        const pick = ex.ok && Array.isArray(ex.data) && ex.data.length ? mapPick(ex.data[0]) : null;
-        return json({ error: 'already picked', pick }, 409);
-      }
-      if (!ins.ok || !Array.isArray(ins.data) || !ins.data.length) {
-        return json({ error: 'db error', detail: ins.data }, 500);
-      }
-      return json({ pick: mapPick(ins.data[0]) }, 201);
+      const { drawsByGame, nextInfo } = await loadAllDraws();
+      const r = await submitPick({ store, drawsByGame, nextInfo, body });
+      return json(r.data, r.status);
     }
 
     return json({ error: 'not found' }, 404);
@@ -282,5 +275,5 @@ export default async (req) => {
 };
 
 export const config = {
-  path: ['/api/picks', '/api/pick', '/api/my-picks', '/api/draws', '/api/next']
+  path: ['/api/state', '/api/pick', '/api/draws', '/api/next']
 };

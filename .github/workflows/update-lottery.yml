@@ -1,11 +1,27 @@
-# 🤖 הסוכן של לוטי לוט — רץ לבד כל 10 דקות ומביא תוצאות ומועדים מהפיס.
-# אפשר גם להריץ ידנית: בגיטהאב → Actions → הסוכן של לוטי לוט → Run workflow
+# 🤖 הסוכן של לוטי לוט — מביא תוצאות ומועדי הגרלות מהפיס.
+#
+# ההגרלות מתקיימות בשעות קבועות (שעון ישראל), ולכן הסוכן רץ רק אחריהן:
+#
+#   צ'אנס   א'–ה' 09,11,13,15,17,19,21 · ו' 10,12,14 · מוצ"ש 21:30, 23:30
+#   777     א'–ה' 13:30 ו-19:30 · ו' 13:30 · מוצ"ש 21:30
+#   123     א'–ה' 18:00 · ו' 13:00 · מוצ"ש 21:30
+#   לוטו    שלישי ושבת, סביב 23:15
+#
+# הקרון של גיטהאב הוא ב-UTC, וישראל היא UTC+2 בחורף ו-UTC+3 בקיץ,
+# לכן החלון מכסה את שתי ההזזות — עדיין ~24 ריצות ביום במקום 144.
+# הסוכן שומר קומיט רק אם באמת השתנה משהו, כך שריצה מיותרת לא עולה כלום.
+#
+# הרצה ידנית: בגיטהאב → Actions → הסוכן של לוטי לוט → Run workflow
+#
+# אם ההרצה נכשלת ב-Permission denied בשלב הדחיפה:
+#   Settings → Actions → General → Workflow permissions → Read and write permissions
 
 name: הסוכן של לוטי לוט
 
 on:
   schedule:
-    - cron: '*/10 * * * *'
+    - cron: '12 6-21 * * *'
+    - cron: '42 10,11,16,17,18,19,20,21 * * *'
   workflow_dispatch: {}
 
 permissions:
@@ -37,10 +53,13 @@ jobs:
             git config user.name "lotilot-bot"
             git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
             git add live-data.json
-            # [skip ci] — האתר קורא את הקובץ הזה בזמן אמת, אז אין צורך בבנייה מחדש
             git commit -m "🤖 עדכון תוצאות אוטומטי [skip ci]"
-            git push
-            echo "✓ הנתונים עודכנו"
+            if git push; then
+              echo "✓ הנתונים עודכנו ונדחפו"
+            else
+              echo "::error::הדחיפה נכשלה. Settings → Actions → General → Workflow permissions → Read and write permissions"
+              exit 1
+            fi
           else
             echo "אין שינוי — לא נדרש עדכון"
           fi

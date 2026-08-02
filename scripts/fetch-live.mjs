@@ -6,7 +6,7 @@
 //   2. אם השרת חסום — דרך r.jina.ai שמושך את דף המשחק עבורנו, ומפענחים ממנו
 //      את התוצאה האחרונה. ככה הבוט ממשיך לעבוד גם אם הפיס חוסם שרתי ענן.
 
-import { writeFileSync, readFileSync, existsSync } from 'node:fs';
+import { writeFileSync, readFileSync, existsSync, appendFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
 import { GAMES, GAME_KEYS, parseGameCsv } from '../server/games.mjs';
@@ -23,7 +23,26 @@ const HE_MONTHS = ['ינואר','פברואר','מרץ','אפריל','מאי','�
 const CARD_VALUES = ['7', '8', '9', '10', 'J', 'Q', 'K', 'A'];
 const PAGES = { lotto: '/lotto/', chance: '/chance/', '777': '/777/', '123': '/123/' };
 
-const log = (m) => console.log('[fetch-live] ' + m);
+// דפי טבלת הזכיות הרשמית — כמה זכו בכל מקום ובכמה כסף.
+// קיימים רק בלוטו וב-777; בצ'אנס וב-123 הפרסים קבועים בתקנון ולכן מחושבים לבד.
+const PRIZE_PAGES = {
+  lotto: (id) => '/lotto/currentlotto.aspx?lotteryId=' + id,
+  '777': (id) => '/777/CurrentLottery.aspx?lotteryId=' + id
+};
+const PRIZE_DRAWS = 6; // לכמה הגרלות אחרונות מושכים את הטבלה
+const ORDINAL_TO_HITS = { 'ראשון': '7', 'שני': '6', 'שלישי': '5', 'רביעי': '4', 'חמישי': '3', 'שישי': '0' };
+
+const report = [];
+const log = (m) => { console.log('[fetch-live] ' + m); report.push(m); };
+
+// כותב סיכום קריא ללשונית Actions בגיטהאב
+function writeSummary(lines) {
+  const file = process.env.GITHUB_STEP_SUMMARY;
+  if (!file) return;
+  try {
+    appendFileSync(file, lines.join('\n') + '\n', 'utf8');
+  } catch { /* לא קריטי */ }
+}
 
 async function raw(url, ms) {
   const c = new AbortController();
@@ -166,17 +185,79 @@ function parsePage(gameKey, text) {
   return null;
 }
 
+// ---------- טבלת הזכיות הרשמית ----------
+const cleanNum = (s) => Number(String(s).replace(/[^\d.]/g, '')) || 0;
+
+export function parsePrizeTable(gameKey, text) {
+  const lines = toLines(text).map((l) => l.replace(/&#x27;|&#39;/g, "'").trim());
+  const tiers = [];
+
+  if (gameKey === 'lotto') {
+    // עוצרים לפני טבלת הדאבל לוטו — אנחנו משחקים בטופס רגיל
+    const start = lines.findIndex((l) => /טבלת זכיות לוטו/.test(l));
+    const end = lines.findIndex((l) => /טבלת זכיות דאבל/.test(l));
+    const slice = lines.slice(start > -1 ? start : 0, end > -1 ? end : lines.length);
+    for (let i = 0; i < slice.length; i++) {
+      if (!/^מס'?\s*ניחושים$/.test(slice[i])) continue;
+      const key = (slice[i + 1] || '').replace(/\s/g, '').replace('+חזק', '+s');
+      if (!/^\d(\+s)?$/.test(key)) continue;
+      if (!/כמות זכיות/.test(slice[i + 2] || '')) continue;
+      tiers.push({ key, winners: cleanNum(slice[i + 3]), prize: cleanNum(slice[i + 5]) });
+    }
+  } else if (gameKey === '777') {
+    const start = lines.findIndex((l) => /טבלת זכיות/.test(l));
+    const slice = lines.slice(start > -1 ? start : 0);
+    for (let i = 0; i < slice.length; i++) {
+      if (slice[i] !== 'פרס') continue;
+      const key = ORDINAL_TO_HITS[(slice[i + 1] || '').trim()];
+      if (!key) continue;
+      if (!/כמות זכיות/.test(slice[i + 2] || '')) continue;
+      tiers.push({ key, winners: cleanNum(slice[i + 3]), prize: cleanNum(slice[i + 5]) });
+    }
+  }
+  return tiers.length ? tiers : null;
+}
+
+// מושך טבלאות זכיות להגרלות האחרונות, ומשתמש שוב במה שכבר נשמר
+async function attachPrizes(gameKey, draws, prevDraws) {
+  const maker = PRIZE_PAGES[gameKey];
+  if (!maker) return;
+  const prevById = new Map((prevDraws || []).map((d) => [d.id, d.prizes]));
+
+  for (const d of draws.slice(0, PRIZE_DRAWS)) {
+    const cached = prevById.get(d.id);
+    if (cached && cached.length) { d.prizes = cached; continue; }
+    for (const [via, url, ms] of [
+      ['direct', BASE + maker(d.id), 10000],
+      ['proxy', PROXY + BASE + maker(d.id), 70000]
+    ]) {
+      try {
+        const tiers = parsePrizeTable(gameKey, decode(await raw(url, ms)));
+        if (!tiers) throw new Error('לא נמצאה טבלה');
+        d.prizes = tiers;
+        log(GAMES[gameKey].name + ' → טבלת זכיות להגרלה ' + d.id + ' (' + tiers.length + ' מקומות)');
+        break;
+      } catch (err) {
+        if (via === 'proxy') log(GAMES[gameKey].name + ' → אין טבלת זכיות להגרלה ' + d.id);
+      }
+    }
+  }
+}
+
 // ---------- התוצאות האחרונות ----------
-async function fetchLatest() {
+async function fetchLatest(prev) {
   const latest = {};
   await Promise.all(
     GAME_KEYS.map(async (key) => {
+      const prevDraws = prev && prev.latest && prev.latest[key] ? prev.latest[key].draws : null;
       // 1. הדרך הטובה: קובץ התוצאות המלא ישירות מהפיס
       try {
         const text = decode(await raw(GAMES[key].csvUrl, 20000));
         const draws = parseGameCsv(key, text);
         if (draws.length === 0) throw new Error('קובץ ריק');
-        latest[key] = { via: 'csv', count: draws.length, draws: draws.slice(0, KEEP_DRAWS) };
+        const kept = draws.slice(0, KEEP_DRAWS);
+        await attachPrizes(key, kept, prevDraws);
+        latest[key] = { via: 'csv', count: draws.length, draws: kept };
         log(GAMES[key].name + ' → ' + draws.length + ' הגרלות, אחרונה ' + draws[0].id + ' מ־' + draws[0].date + ' (csv)');
         return;
       } catch (err) {
@@ -191,7 +272,9 @@ async function fetchLatest() {
         try {
           const draw = parsePage(key, decode(await raw(url, ms)));
           if (!draw) throw new Error('לא הצלחתי לפענח');
-          latest[key] = { via, count: 1, draws: [draw] };
+          const kept = [draw];
+          await attachPrizes(key, kept, prevDraws);
+          latest[key] = { via, count: 1, draws: kept };
           log(GAMES[key].name + ' → הגרלה ' + draw.id + ': ' + draw.numbers.join(',') + (draw.strong ? ' | חזק ' + draw.strong : '') + ' (' + via + ')');
           return;
         } catch (err) {
@@ -203,18 +286,49 @@ async function fetchLatest() {
   return latest;
 }
 
+function summaryLines(payload, changed) {
+  const rows = GAME_KEYS.map((k) => {
+    const l = payload.latest[k];
+    const n = payload.next[k];
+    const d = l && l.draws && l.draws[0];
+    return '| ' + GAMES[k].name + ' | ' + (d ? d.id + ' (' + d.date + ')' : '—') +
+      ' | ' + (n ? n.date + ' ' + (n.time || '') : '—') +
+      ' | ' + (l ? l.via : '❌') + ' |';
+  });
+  return [
+    changed ? '## ✅ נמצאו נתונים חדשים ונשמרו' : '## ✔️ הכול עדכני — אין מה לשמור',
+    '',
+    '| משחק | הגרלה אחרונה | ההגרלה הבאה | מקור |',
+    '|---|---|---|---|',
+    ...rows,
+    '',
+    '<details><summary>יומן מלא</summary>',
+    '', '```', ...report, '```', '</details>'
+  ];
+}
+
 async function main() {
-  const next = await fetchNext();
-  const latest = await fetchLatest();
-
-  if (Object.keys(next).length === 0 && Object.keys(latest).length === 0) {
-    log('לא התקבל שום מידע — משאיר את הקובץ כמו שהוא');
-    return;
-  }
-
   let prev = { next: {}, latest: {} };
   if (existsSync(OUT_FILE)) {
     try { prev = JSON.parse(readFileSync(OUT_FILE, 'utf8')); } catch { /* פגום */ }
+  }
+  const next = await fetchNext();
+  const latest = await fetchLatest(prev);
+
+  const gotNext = Object.keys(next).length;
+  const gotLatest = Object.keys(latest).length;
+
+  if (gotNext === 0 && gotLatest === 0) {
+    log('❌ לא התקבל שום מידע מהפיס — לא ישירות ולא דרך השער');
+    writeSummary([
+      '## ❌ הסוכן לא הצליח למשוך נתונים',
+      '',
+      'אתר הפיס לא נענה מהשרת של גיטהאב, וגם שער העקיפה נכשל.',
+      '',
+      '```', ...report, '```'
+    ]);
+    process.exitCode = 1; // ריצה אדומה — כדי שלא ייראה כאילו הכול תקין
+    return;
   }
 
   const payload = {
@@ -226,12 +340,14 @@ async function main() {
   // כותבים רק אם באמת השתנה משהו — כדי לא ליצור קומיטים מיותרים
   const sig = (o) => JSON.stringify({ next: o.next, latest: o.latest });
   if (existsSync(OUT_FILE) && sig(prev) === sig(payload)) {
-    log('אין שינוי — הקובץ נשאר כפי שהוא');
+    log('אין שינוי מאז הריצה הקודמת');
+    writeSummary(summaryLines(payload, false));
     return;
   }
 
   writeFileSync(OUT_FILE, JSON.stringify(payload), 'utf8');
   log('✓ live-data.json עודכן');
+  writeSummary(summaryLines(payload, true));
 }
 
 // רץ רק כשמפעילים את הקובץ ישירות (כדי שאפשר יהיה לייבא את הפענוח לבדיקות)
