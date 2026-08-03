@@ -31,8 +31,8 @@ async function ensureAiPicks(store, drawsByGame, allPicks, openByGame, onlyGame)
   if (missing.length === 0) return allPicks;
 
   const rows = missing.map(({ game, drawId }) => {
-    const { numbers, strong } = GAMES[game].randomPick();
-    return { clientId: AI_CLIENT_ID, game, drawId, name: AI_NAME, numbers, strong };
+    const d = GAMES[game].randomPick('regular');
+    return { clientId: AI_CLIENT_ID, game, drawId, name: AI_NAME, numbers: d.numbers, strong: d.strong, tables: d.tables || null, variant: 'regular' };
   });
   const inserted = await store.insertMany(rows);
   return inserted && inserted.length ? allPicks.concat(inserted) : allPicks;
@@ -124,7 +124,10 @@ function publicPick(p) {
     id: p.id,
     game: p.game,
     variant: p.variant || 'regular',
+    tables: p.tables || null,
     matched: p.matched || [],
+    matchedTables: p.matchedTables || null,
+    perTable: p.perTable || null,
     drawId: p.drawId,
     name: p.name,
     numbers: p.numbers,
@@ -184,12 +187,14 @@ export async function submitPick({ store, drawsByGame, nextInfo, body }) {
     if (existing) return { status: 409, data: { error: 'already picked', pick: existing } };
   }
 
-  const { numbers, strong } = GAMES[game].randomPick();
+  const drawn = GAMES[game].randomPick(variant);
+  const { numbers, strong, tables } = drawn;
   const res = await store.insert({
     clientId,
     game,
     drawId,
     variant,
+    tables: tables || null,
     name: cleanName(name),
     numbers,
     strong

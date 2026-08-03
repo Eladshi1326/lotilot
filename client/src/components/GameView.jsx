@@ -1,6 +1,6 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { GAMES_UI, formatMoney, formatSigned, todayDrawTimes, timePassed } from '../games.js';
-import { PickView, emptyNumbers, randomDisplay } from './GamePieces.jsx';
+import { PickView, FormView, emptyNumbers, randomDisplay } from './GamePieces.jsx';
 import Countdown from './Countdown.jsx';
 import Scoreboard, { Versus } from './Scoreboard.jsx';
 
@@ -28,7 +28,7 @@ function PickTile({ pick, mine }) {
         {pick.variant === 'double' ? <span className="tag dbl">דאבל</span> : null}
         {mine ? <span className="tag me">אתה</span> : null}
       </div>
-      <PickView game={pick.game} numbers={pick.numbers} strong={pick.strong} size="sm" matched={pick.matched} />
+      <FormView game={pick.game} pick={pick} size="sm" />
       <div className="tile-foot">
         {pick.status === 'pending' ? (
           <span className="tile-pending">ממתין להגרלה</span>
@@ -145,7 +145,7 @@ function BrainPanel({ ai, aiPicks, game }) {
               <div className={'brain-pick' + (p.prize > 0 ? ' won' : '')} key={p.id}>
                 <span className="bp-draw">הגרלה {p.drawId}</span>
                 <span className="bp-nums">
-                  <PickView game={p.game} numbers={p.numbers} strong={p.strong} size="sm" matched={p.matched} />
+                  <FormView game={p.game} pick={p} size="sm" />
                 </span>
                 <span className="bp-res">
                   {p.status === 'pending' ? '⏳ ממתין'
@@ -293,6 +293,7 @@ export default function GameView({ game, state, nextInfo, now, clientId, onSubmi
           </div>
           <div className="price-tag">
             <span className="price-num">{formatMoney(price)}</span>
+            {chosen && chosen.tables > 1 ? <span className="price-tables">{chosen.tables} טבלאות</span> : null}
             <span className="price-note">{chosen ? chosen.hint : state ? state.priceNote : 'לכרטיס'}</span>
           </div>
         </div>
@@ -305,7 +306,7 @@ export default function GameView({ game, state, nextInfo, now, clientId, onSubmi
               <p className="play-owner">
                 {myPick.name || 'הכרטיס שלך'} — {justWon ? 'הכרטיס שלך להגרלה הזו! 🎉' : 'כבר יש לך כרטיס בהגרלה הזו ✓'}
               </p>
-              <PickView game={game} numbers={shown.numbers} strong={shown.strong} revealed={justWon} matched={myPick.matched} />
+              <FormView game={game} pick={myPick} revealed={justWon} />
               <p className="dim-note">
                 {myPick.variant === 'double' ? 'דאבל לוטו · ' : ''}שילמת {formatMoney(myPick.cost)} · {myPick.status === 'pending'
                   ? 'מחכים לתוצאות'

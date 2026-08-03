@@ -44,6 +44,7 @@ function makeRow(p) {
     game: p.game,
     drawId: p.drawId,
     variant: p.variant || 'regular',
+    tables: p.tables || null,
     name: p.name || '',
     numbers: p.numbers,
     strong: p.strong ?? null,
@@ -138,7 +139,7 @@ app.get('/api/state', async (req, res) => {
       clientId: req.query.clientId || ''
     });
     res.setHeader('Cache-Control', 'no-cache');
-    res.json({ ...state, next: nextInfo, dataUpdatedAt: live && live.updatedAt ? live.updatedAt : null });
+    res.json({ ...state, next: nextInfo, dataUpdatedAt: live && live.updatedAt ? live.updatedAt : null, botUpdatedAt: live && live.botUpdatedAt ? live.botUpdatedAt : null });
   } catch (err) {
     res.status(500).json({ error: 'server error: ' + err.message });
   }

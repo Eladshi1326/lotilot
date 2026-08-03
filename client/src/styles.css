@@ -633,3 +633,89 @@ body {
   .fill-btn { width: 100%; font-size: 17px; padding: 14px 20px; }
   .name-input { font-size: 16px; }  /* מונע זום אוטומטי באייפון */
 }
+
+/* ══════════ טופס עם כמה טבלאות ══════════ */
+.form-tables { display: flex; flex-direction: column; gap: 6px; align-items: stretch; }
+.form-row {
+  display: grid; grid-template-columns: 20px 1fr auto; gap: 8px; align-items: center;
+  background: #fafbfe; border: 1px solid var(--line); border-radius: 9px; padding: 5px 8px;
+}
+.form-row.won { background: #f0fdf4; border-color: #86efac; }
+.fr-idx { font-size: 10.5px; color: var(--muted); font-weight: 800; text-align: center; }
+.fr-win { font-size: 11.5px; font-weight: 800; color: #15803d; white-space: nowrap; }
+.form-row .balls-row { flex-wrap: nowrap; gap: 4px; overflow-x: auto; scrollbar-width: none; justify-content: flex-start; }
+.form-row .balls-row::-webkit-scrollbar { display: none; }
+.price-tables { font-size: 10.5px; color: var(--muted); }
+
+/* ══════════ מובייל — תיקון יסודי ══════════ */
+@media (max-width: 700px) {
+  .page { padding: 12px 10px 32px; }
+  .card-block { padding: 12px 11px; border-radius: 14px; margin-bottom: 12px; }
+  .block-title { font-size: 16px; margin-bottom: 10px; }
+
+  /* ספירה לאחור קומפקטית */
+  .countdown { padding: 10px 12px; gap: 8px; flex-direction: column; }
+  .cd-label { font-size: 13px; text-align: center; }
+  .cd-unit { min-width: 44px; padding: 3px 7px; }
+  .cd-unit b { font-size: 17px; }
+  .cd-prize { font-size: 13.5px; }
+
+  /* כרטיס המשחק */
+  .play-head { padding: 13px 14px 4px; }
+  .play-title { font-size: 18px; }
+  .play-body { padding: 12px 14px 16px; }
+  .price-tag { flex-direction: row; gap: 7px; align-items: baseline; padding: 6px 12px; }
+
+  /* בורר הטפסים — 2 בשורה, קריא */
+  .variant-picker { display: grid; grid-template-columns: 1fr 1fr; gap: 7px; width: 100%; }
+  .variant-btn { min-width: 0; padding: 9px 8px; min-height: 66px; }
+  .v-label { font-size: 13px; }
+  .v-price { font-size: 15px; }
+  .v-hint { font-size: 9.5px; line-height: 1.2; }
+
+  /* אני מול המוח — אחד מתחת לשני, ברור */
+  .versus { grid-template-columns: 1fr; gap: 8px; padding: 12px; }
+  .vs-mid { flex-direction: row; justify-content: center; gap: 8px; }
+  .vs-net { font-size: 23px; }
+
+  /* המאזן — 2 קופסאות בשורה */
+  .money-row { grid-template-columns: 1fr 1fr; gap: 8px; }
+  .mb-val { font-size: 17px; }
+
+  /* אריחי כרטיסים — אחד בשורה, רחב וקריא */
+  .tiles, .draw-picks { grid-template-columns: 1fr; gap: 9px; }
+
+  /* אזור המוח */
+  .brain-pick { grid-template-columns: 1fr; gap: 5px; padding: 9px; text-align: center; }
+  .bp-nums .balls-row { justify-content: center; }
+  .brain-best { font-size: 12.5px; }
+
+  /* פודיום — אחד מתחת לשני */
+  .podium { grid-template-columns: 1fr; gap: 8px; }
+  .pod { flex-direction: row; flex-wrap: wrap; justify-content: flex-start; gap: 8px; padding: 10px 12px; }
+  .pod-medal { font-size: 22px; }
+  .pod-name { font-size: 14px; flex: 1; text-align: start; }
+  .pod-net { font-size: 18px; }
+  .pod-detail, .pod-best { width: 100%; text-align: start; }
+
+  /* טבלאות — גלילה אופקית במקום דחיסה */
+  .table-wrap { -webkit-overflow-scrolling: touch; }
+  .score-table, .history-table { font-size: 12.5px; min-width: 520px; }
+  .score-table th, .history-table th { padding: 8px 9px; font-size: 11px; }
+  .score-table td, .history-table td { padding: 7px 9px; }
+
+  /* שורות הגרלה */
+  .draw-head { grid-template-columns: 1fr; gap: 5px; padding: 9px 10px; }
+  .draw-nums { justify-content: flex-start; }
+  .draw-right { justify-content: space-between; width: 100%; }
+
+  /* טופס רב-טבלאי */
+  .form-row { grid-template-columns: 16px 1fr auto; padding: 4px 6px; gap: 5px; }
+  .form-row .ball.sm { width: 24px; height: 24px; font-size: 11.5px; }
+
+  .prize-hint { font-size: 11.5px; }
+  .pt-rows { grid-template-columns: 1fr; }
+  .disclaimer { font-size: 11px; }
+  .view-switch { width: 100%; }
+  .sw-btn { flex: 1; padding: 9px 10px; }
+}

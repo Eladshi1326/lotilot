@@ -10,6 +10,7 @@
     "start": "node scripts/update-data.mjs && node server/index.mjs",
     "update-data": "node scripts/update-data.mjs",
     "fetch-live": "node scripts/fetch-live.mjs",
+    "pais-raw": "node scripts/make-pais-raw.mjs",
     "preview": "vite preview"
   },
   "dependencies": {

@@ -17,17 +17,33 @@ function getClientId() {
   return id;
 }
 
-// חיווי: מתי הסוכן עדכן את הנתונים בפעם האחרונה
-function BotStatus({ updatedAt, now }) {
-  if (!updatedAt) return null;
-  const mins = Math.max(0, Math.round((now - new Date(updatedAt).getTime()) / 60000));
-  const stale = mins > 240; // מעל 4 שעות — כנראה משהו לא בסדר
-  const when = mins < 1 ? 'ממש עכשיו' : mins < 60 ? 'לפני ' + mins + ' דקות'
-    : mins < 1440 ? 'לפני ' + Math.round(mins / 60) + ' שעות' : 'לפני ' + Math.round(mins / 1440) + ' ימים';
+function ago(ms) {
+  const mins = Math.max(0, Math.round(ms / 60000));
+  if (mins < 1) return 'ממש עכשיו';
+  if (mins < 60) return 'לפני ' + mins + ' דקות';
+  if (mins < 1440) return 'לפני ' + Math.round(mins / 60) + ' שעות';
+  return 'לפני ' + Math.round(mins / 1440) + ' ימים';
+}
+
+// חיווי: מתי הנתונים עודכנו, ואם הבוט האוטומטי חי
+function BotStatus({ updatedAt, botUpdatedAt, now }) {
+  if (!updatedAt && !botUpdatedAt) return null;
+
+  if (botUpdatedAt) {
+    const mins = Math.round((now - new Date(botUpdatedAt).getTime()) / 60000);
+    const stale = mins > 90; // הבוט אמור לרוץ כל רבע שעה
+    return (
+      <div className={'bot-status' + (stale ? ' stale' : '')}>
+        🤖 הבוט משך תוצאות מהפיס <b>{ago(now - new Date(botUpdatedAt).getTime())}</b>
+        {stale ? ' — נראה שהוא תקוע, כדאי לבדוק ב-Apps Script' : ''}
+      </div>
+    );
+  }
+
   return (
-    <div className={'bot-status' + (stale ? ' stale' : '')}>
-      🤖 הסוכן עדכן את התוצאות <b>{when}</b>
-      {stale ? ' — נראה שהוא תקוע, כדאי לבדוק ב-GitHub Actions' : ''}
+    <div className="bot-status stale">
+      🤖 הבוט האוטומטי עוד לא מותקן — הנתונים מהעדכון הידני האחרון,{' '}
+      <b>{ago(now - new Date(updatedAt).getTime())}</b>
     </div>
   );
 }
@@ -118,7 +134,11 @@ export default function App() {
           <History game={game} />
         )}
 
-        <BotStatus updatedAt={state && state.dataUpdatedAt} now={now} />
+        <BotStatus
+          updatedAt={state && state.dataUpdatedAt}
+          botUpdatedAt={state && state.botUpdatedAt}
+          now={now}
+        />
 
         <footer className="footer">
           <p>

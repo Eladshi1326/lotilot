@@ -1,5 +1,5 @@
 // לוטי לוט — חישוב תוצאות וכסף: מי זכה בכמה, ומי מוביל מול המוח
-import { GAMES, GAME_KEYS, evaluatePick, drawTs, priceOf, matchedIndexes } from './games.mjs';
+import { GAMES, GAME_KEYS, evaluatePick, drawTs, priceOf, matchedIndexes, matchedByTable } from './games.mjs';
 
 export const AI_CLIENT_ID = 'ai-brain-v1';
 export const AI_NAME = 'המוח';
@@ -29,6 +29,8 @@ export function annotatePicks(picks, drawsByGame) {
       exact: r.exact,
       status: r.prize > 0 ? 'won' : 'lost',
       matched: matchedIndexes(p, draw),
+      matchedTables: matchedByTable(p, draw),
+      perTable: r.perTable || null,
       winnersInTier: r.winnersInTier,
       drawNumbers: draw.numbers,
       drawStrong: draw.strong,

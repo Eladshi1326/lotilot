@@ -114,3 +114,28 @@ export function randomDisplay(game) {
   nums.sort((a, b) => a - b);
   return { numbers: nums, strong: 1 + Math.floor(Math.random() * 7) };
 }
+
+// טופס שלם: כמה טבלאות אחת מתחת לשנייה, כל אחת עם הפגיעות שלה
+export function FormView({ game, pick, size, revealed }) {
+  const tables = Array.isArray(pick.tables) && pick.tables.length
+    ? pick.tables
+    : [{ numbers: pick.numbers, strong: pick.strong }];
+  const matched = pick.matchedTables || [];
+  const per = pick.perTable || [];
+  if (tables.length === 1) {
+    return <PickView game={game} numbers={tables[0].numbers} strong={tables[0].strong}
+      size={size} revealed={revealed} matched={matched[0] || pick.matched} />;
+  }
+  return (
+    <div className="form-tables">
+      {tables.map((t, i) => (
+        <div className={'form-row' + (per[i] && per[i].prize > 0 ? ' won' : '')} key={i}>
+          <span className="fr-idx">{i + 1}</span>
+          <PickView game={game} numbers={t.numbers} strong={t.strong}
+            size={size} revealed={revealed} matched={matched[i]} />
+          {per[i] && per[i].prize > 0 ? <span className="fr-win">+{per[i].prize} ₪</span> : null}
+        </div>
+      ))}
+    </div>
+  );
+}
