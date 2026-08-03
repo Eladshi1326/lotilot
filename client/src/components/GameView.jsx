@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { GAMES_UI, formatMoney, formatSigned, todayDrawTimes, timePassed } from '../games.js';
+import { GAMES_UI, AI_EXPLAIN, formatMoney, formatSigned, todayDrawTimes, timePassed } from '../games.js';
 import { PickView, FormView, emptyNumbers, randomDisplay } from './GamePieces.jsx';
 import Countdown from './Countdown.jsx';
 import Scoreboard, { Versus } from './Scoreboard.jsx';
@@ -111,14 +111,14 @@ function DrawRow({ row, game, myPickId }) {
   );
 }
 
-// המוח — מה הוא בחר, במה פגע וכמה הרוויח
-function BrainPanel({ ai, aiPicks, game }) {
+// המוח — כרטיס קצר וברור, עם כפתור לכל ההיסטוריה
+function BrainPanel({ ai, aiPicks, game, onOpenBrain }) {
   if (!ai) return null;
-  const picks = aiPicks || [];
-  const wins = picks.filter((p) => p.prize > 0);
+  const picks = (aiPicks || []).slice(0, 3);
   return (
     <section className="card-block brain">
-      <h3 className="block-title">🧠 המוח — היריב שלך</h3>
+      <h3 className="block-title">🧠 המוח <span className="title-sub">שחקן המחשב</span></h3>
+      <p className="ai-explain">{AI_EXPLAIN}</p>
       <div className="money-row">
         <div className="money-box"><span className="mb-label">כרטיסים</span><span className="mb-val">{ai.tickets}</span></div>
         <div className="money-box"><span className="mb-label">הוציא</span><span className="mb-val neg">{formatMoney(ai.spent)}</span></div>
@@ -128,38 +128,26 @@ function BrainPanel({ ai, aiPicks, game }) {
           <span className={'mb-val ' + (ai.net >= 0 ? 'pos' : 'neg')}>{formatSigned(ai.net)}</span>
         </div>
       </div>
-      {ai.bestPrize > 0 ? (
-        <p className="brain-best">
-          🏆 הזכייה הגדולה שלו: <b>{formatMoney(ai.bestPrize)}</b>
-          {ai.bestLabel ? ' — ' + ai.bestLabel : ''}
-          {ai.bestGame && GAMES_UI[ai.bestGame] ? ' ב' + GAMES_UI[ai.bestGame].name : ''}
-        </p>
-      ) : null}
       {picks.length > 0 ? (
-        <>
-          <div className="wins-title">
-            הכרטיסים האחרונים שלו ב{GAMES_UI[game].name} — הכדורים הירוקים הם פגיעות:
-          </div>
-          <div className="brain-picks">
-            {picks.map((p) => (
-              <div className={'brain-pick' + (p.prize > 0 ? ' won' : '')} key={p.id}>
-                <span className="bp-draw">הגרלה {p.drawId}</span>
-                <span className="bp-nums">
-                  <FormView game={p.game} pick={p} size="sm" />
-                </span>
-                <span className="bp-res">
-                  {p.status === 'pending' ? '⏳ ממתין'
-                    : p.prize > 0 ? '🎉 ' + p.label + ' · ' + formatMoney(p.prize)
-                    : (p.matched ? p.matched.length : 0) + ' פגיעות · לא זכה'}
-                </span>
-              </div>
-            ))}
-          </div>
-          <p className="block-note">
-            סך הכל הוא זכה ב-{wins.length} מהכרטיסים המוצגים. הוא בוחר אקראית לגמרי — בדיוק כמוך.
-          </p>
-        </>
+        <div className="brain-picks">
+          {picks.map((p) => (
+            <div className={'brain-pick' + (p.prize > 0 ? ' won' : '')} key={p.id}>
+              <span className="bp-draw">הגרלה {p.drawId}</span>
+              <span className="bp-nums">
+                <FormView game={p.game} pick={p} size="sm" />
+              </span>
+              <span className="bp-res">
+                {p.status === 'pending' ? '⏳ ממתין'
+                  : p.prize > 0 ? '🎉 ' + p.label + ' · ' + formatMoney(p.prize)
+                  : (p.matched ? p.matched.length : 0) + ' פגיעות · לא זכה'}
+              </span>
+            </div>
+          ))}
+        </div>
       ) : null}
+      <button className="brain-more" onClick={onOpenBrain} type="button">
+        🧠 לכל ההיסטוריה של המוח — כל כרטיס וכל שקל ←
+      </button>
     </section>
   );
 }
@@ -203,7 +191,7 @@ function MyMoney({ me, myWins, gameName }) {
   );
 }
 
-export default function GameView({ game, state, nextInfo, now, clientId, onSubmitted, loading }) {
+export default function GameView({ game, state, nextInfo, now, clientId, onSubmitted, loading, onOpenBrain }) {
   const ui = GAMES_UI[game];
   const [spinning, setSpinning] = useState(false);
   const [display, setDisplay] = useState({ numbers: emptyNumbers(game), strong: null });
@@ -347,12 +335,15 @@ export default function GameView({ game, state, nextInfo, now, clientId, onSubmi
             </>
           )}
           <p className="prize-hint">🏆 {ui.prizeHint}</p>
+          {state && state.priceOfficial ? (
+            <p className="price-official">💳 {state.priceOfficial}</p>
+          ) : null}
         </div>
       </section>
 
-      {state ? <Versus me={state.me} ai={state.ai} /> : null}
+      {state ? <Versus me={state.me} ai={state.ai} onOpenBrain={onOpenBrain} /> : null}
       {state ? <MyMoney me={state.me} myWins={state.myWins} gameName={ui.name} /> : null}
-      {state ? <BrainPanel ai={state.ai} aiPicks={state.aiPicks} game={game} /> : null}
+      {state ? <BrainPanel ai={state.ai} aiPicks={state.aiPicks} game={game} onOpenBrain={onOpenBrain} /> : null}
 
       <section className="card-block">
         <h3 className="block-title">

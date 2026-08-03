@@ -2,6 +2,7 @@ import React, { useCallback, useEffect, useRef, useState } from 'react';
 import TopNav from './components/TopNav.jsx';
 import GameView from './components/GameView.jsx';
 import History from './components/History.jsx';
+import BrainHistory from './components/BrainHistory.jsx';
 import { GAME_KEYS } from './games.js';
 
 const STATE_POLL_MS = 20000; // רענון מתון — חוסך בקשות למסד
@@ -113,10 +114,13 @@ export default function App() {
       <div className="page">
         <div className="view-switch">
           <button className={'sw-btn' + (view === 'play' ? ' active' : '')} onClick={() => setView('play')}>
-            המשחק
+            🎫 המשחק
+          </button>
+          <button className={'sw-btn' + (view === 'brain' ? ' active' : '')} onClick={() => setView('brain')}>
+            🧠 המוח
           </button>
           <button className={'sw-btn' + (view === 'history' ? ' active' : '')} onClick={() => setView('history')}>
-            כל ההגרלות
+            📜 כל ההגרלות
           </button>
         </div>
 
@@ -129,7 +133,10 @@ export default function App() {
             clientId={clientIdRef.current}
             loading={loading}
             onSubmitted={() => refresh(game)}
+            onOpenBrain={() => setView('brain')}
           />
+        ) : view === 'brain' ? (
+          <BrainHistory game={game} setGame={setGame} />
         ) : (
           <History game={game} />
         )}

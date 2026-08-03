@@ -5,7 +5,7 @@ import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
 import { GAMES, GAME_KEYS, isValidGame, sortDraws } from './games.mjs';
 import { loadLive, mergeDraws, buildNext } from './live-merge.mjs';
-import { buildState, submitPick } from './api-core.mjs';
+import { buildState, submitPick, buildBrainHistory } from './api-core.mjs';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const DATA_DIR = join(__dirname, 'data');
@@ -151,6 +151,18 @@ app.post('/api/pick', async (req, res) => {
     const { drawsByGame, nextInfo } = await loadDrawsAndNext();
     const r = await submitPick({ store: fileStore, drawsByGame, nextInfo, body: req.body });
     res.status(r.status).json(r.data);
+  } catch (err) {
+    res.status(500).json({ error: 'server error: ' + err.message });
+  }
+});
+
+// ההיסטוריה המלאה של המוח
+app.get('/api/brain', async (req, res) => {
+  try {
+    const game = isValidGame(req.query.game) ? req.query.game : 'lotto';
+    const { drawsByGame } = await loadDrawsAndNext();
+    res.setHeader('Cache-Control', 'no-cache');
+    res.json(await buildBrainHistory({ store: fileStore, drawsByGame, game }));
   } catch (err) {
     res.status(500).json({ error: 'server error: ' + err.message });
   }

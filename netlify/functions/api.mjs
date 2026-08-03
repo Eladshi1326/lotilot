@@ -3,7 +3,7 @@
 
 import { GAMES, GAME_KEYS, isValidGame, parseGameCsv, sortDraws } from '../../server/games.mjs';
 import { loadLive, mergeDraws, buildNext } from '../../server/live-merge.mjs';
-import { buildState, submitPick } from '../../server/api-core.mjs';
+import { buildState, submitPick, buildBrainHistory } from '../../server/api-core.mjs';
 import seedAll from '../../server/data/all-history.seed.mjs';
 
 const NEXT_URL = 'https://www.pais.co.il/include/getNextLotteryDate.ashx?type=';
@@ -264,6 +264,12 @@ export default async (req) => {
       return json({ ...state, next: nextInfo, dataUpdatedAt: live && live.updatedAt ? live.updatedAt : null, botUpdatedAt: live && live.botUpdatedAt ? live.botUpdatedAt : null }, 200, { 'cache-control': 'no-store' });
     }
 
+    if (path === '/api/brain' && req.method === 'GET') {
+      const { drawsByGame } = await loadAllDraws();
+      const brain = await buildBrainHistory({ store, drawsByGame, game });
+      return json(brain, 200, { 'cache-control': 'no-store' });
+    }
+
     if (path === '/api/pick' && req.method === 'POST') {
       let body = {};
       try { body = await req.json(); } catch { /* גוף ריק */ }
@@ -279,5 +285,5 @@ export default async (req) => {
 };
 
 export const config = {
-  path: ['/api/state', '/api/pick', '/api/draws', '/api/next']
+  path: ['/api/state', '/api/pick', '/api/draws', '/api/next', '/api/brain']
 };

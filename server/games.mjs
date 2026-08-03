@@ -66,15 +66,16 @@ export const GAMES = {
     idFirst: true, // בלוטו: הגרלה,תאריך ; בשאר: תאריך,הגרלה
     schedule: 'הגרלות בימי שלישי ושבת ב־23:00',
     drawsPerDay: 1,
-    price: 3, // ₪ לטבלה אחת (בפועל טופס מינימלי הוא 2 טבלאות = 6 ₪)
-    priceNote: 'טבלה אחת בטופס רגיל',
-    // טפסים אמיתיים לפי מחירון מפעל הפיס:
-    // רגיל 3 ₪ לטבלה (2–14 טבלאות = 6–42 ₪) · דאבל 6 ₪ לטבלה (2–10 = 12–60 ₪)
+    price: 6, // הטופס המינימלי: 2 טבלאות × 3 ₪
+    priceNote: 'טופס רגיל — 2 טבלאות',
+    // מהעמוד הרשמי "איך משחקים בלוטו": טופס רגיל 3 ₪ לטבלה, 2–14 טבלאות
+    // (6–42 ₪); בדאבל לוטו המחיר לטבלה כפול — 6 ₪ — וכל פרס מוכפל.
+    priceOfficial: 'מחירון הפיס: טבלה בטופס רגיל 3 ₪ (טופס 6–42 ₪) · טבלה בדאבל 6 ₪, כל פרס כפול',
     variants: {
-      regular: { key: 'regular', label: 'לוטו רגיל', price: 6, tables: 2, hint: '2 טבלאות · 3 ₪ לטבלה' },
-      regular6: { key: 'regular6', label: 'רגיל מורחב', price: 18, tables: 6, hint: '6 טבלאות · יותר סיכויים' },
-      double: { key: 'double', label: 'דאבל לוטו', price: 12, tables: 2, hint: '2 טבלאות · פי 2 פרס' },
-      double10: { key: 'double10', label: 'דאבל מלא', price: 60, tables: 10, hint: '10 טבלאות · הפרס המרבי' }
+      regular: { key: 'regular', label: 'לוטו רגיל', price: 6, tables: 2, hint: '2 טבלאות × 3 ₪' },
+      regular6: { key: 'regular6', label: 'רגיל מורחב', price: 18, tables: 6, hint: '6 טבלאות × 3 ₪' },
+      double: { key: 'double', label: 'דאבל לוטו', price: 12, tables: 2, hint: '2 טבלאות × 6 ₪ · פרס ×2' },
+      double10: { key: 'double10', label: 'דאבל מלא', price: 60, tables: 10, hint: '10 טבלאות × 6 ₪ · פרס ×2' }
     },
     prizesExact: false, // פרסי הלוטו נקבעים לפי מחזור ההגרלה
     parseRow(cells) {
@@ -162,6 +163,7 @@ export const GAMES = {
     drawsPerDay: 7,
     price: 5, // דמי השתתפות מינימליים ברב צ'אנס
     priceNote: 'רב צ׳אנס, השתתפות מינימלית',
+    priceOfficial: 'מחירון הפיס: השתתפות 5 עד 500 ₪ (אצלנו: 5 ₪) · הפרס הוא כפולה של ההשתתפות',
     prizesExact: true, // הפרסים כפולה קבועה של דמי ההשתתפות
     parseRow(cells) {
       const cards = cells.slice(2, 6).map((c) => String(c).trim().toUpperCase());
@@ -192,6 +194,7 @@ export const GAMES = {
     drawsPerDay: 2,
     price: 7, // עלות לצירוף
     priceNote: 'צירוף אחד',
+    priceOfficial: 'מחירון הפיס: 7 ₪ לצירוף · טופס מלא (3 טורים) 21 ₪',
     prizesExact: true, // הפרסים קבועים ואינם מתחלקים
     parseRow(cells) {
       const numbers = cells.slice(2, 19).map(Number);
@@ -233,6 +236,7 @@ export const GAMES = {
     drawsPerDay: 1,
     price: 5, // סכום ההשתתפות לטבלה (ניתן לבחור 1–500 ₪)
     priceNote: 'סכום השתתפות נבחר',
+    priceOfficial: 'מחירון הפיס: השתתפות 1 עד 500 ₪ לטבלה (אצלנו: 5 ₪) · זכייה = פי 600',
     prizesExact: true, // פי 600 מסכום ההשתתפות
     parseRow(cells) {
       // בקובץ העמודות בסדר 3,2,1 — הופכים לסדר טבעי

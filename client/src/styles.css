@@ -719,3 +719,219 @@ body {
   .view-switch { width: 100%; }
   .sw-btn { flex: 1; padding: 9px 10px; }
 }
+
+/* ═══════════════════ בהיר וקומפקטי 2.0 ═══════════════════
+   הסברים ברורים למוח, מחירים חד-משמעיים, מסך ההיסטוריה של המוח,
+   והקטנה רוחבית של כל האלמנטים במובייל. */
+
+/* --- הסבר המוח, בכל מקום שהוא מופיע --- */
+.ai-explain {
+  margin: 6px 0 10px;
+  padding: 9px 12px;
+  background: #f3efff;
+  border: 1px solid #ddd2ff;
+  border-radius: 10px;
+  color: #4c3a86;
+  font-size: .85rem;
+  line-height: 1.55;
+}
+.title-sub {
+  font-size: .72rem;
+  font-weight: 600;
+  color: var(--muted);
+  background: #eef1f8;
+  border-radius: 20px;
+  padding: 2px 9px;
+  margin-inline-start: 6px;
+  vertical-align: middle;
+}
+
+/* --- שורת ההסבר מתחת ל"אני מול המוח" --- */
+.versus { position: relative; cursor: pointer; }
+.vs-explain {
+  grid-column: 1 / -1;
+  text-align: center;
+  font-size: .74rem;
+  color: var(--muted);
+  border-top: 1px dashed var(--line);
+  padding-top: 7px;
+  margin-top: 2px;
+}
+
+/* --- מחירון רשמי מתחת לכרטיס המשחק --- */
+.price-official {
+  margin: 8px 0 0;
+  font-size: .74rem;
+  color: var(--muted);
+  text-align: center;
+  background: #f7f9fd;
+  border-radius: 8px;
+  padding: 6px 10px;
+}
+
+/* --- כפתור "כל ההיסטוריה של המוח" --- */
+.brain-more {
+  display: block;
+  width: 100%;
+  margin-top: 10px;
+  padding: 11px 12px;
+  border: 2px solid #b9a5f5;
+  background: #f6f2ff;
+  color: #4c3a86;
+  font-weight: 700;
+  font-size: .9rem;
+  border-radius: 12px;
+  cursor: pointer;
+  font-family: inherit;
+}
+.brain-more:active { transform: scale(.98); }
+
+/* --- מסך ההיסטוריה של המוח --- */
+.brain-bygame {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(130px, 1fr));
+  gap: 8px;
+  margin-top: 10px;
+}
+.bg-chip {
+  border: 1.5px solid var(--line);
+  background: var(--card);
+  border-radius: 12px;
+  padding: 8px 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  align-items: center;
+  cursor: pointer;
+  font-family: inherit;
+}
+.bg-chip.active { border-color: #8f76e8; background: #f6f2ff; }
+.bg-name { font-weight: 700; font-size: .85rem; }
+.bg-net { font-weight: 800; font-size: .95rem; }
+.bg-net.pos { color: var(--green); }
+.bg-net.neg { color: #d33; }
+.bg-sub { font-size: .7rem; color: var(--muted); }
+
+.brain-history { display: flex; flex-direction: column; gap: 8px; }
+.bh-row {
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  padding: 9px 11px;
+  background: var(--card);
+}
+.bh-row.won { border-color: #b2e2c1; background: #f2fbf5; }
+.bh-row.pending { background: #fbfcff; border-style: dashed; }
+.bh-head {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  margin-bottom: 6px;
+  flex-wrap: wrap;
+}
+.bh-draw { font-weight: 800; font-size: .88rem; }
+.bh-date { color: var(--muted); font-size: .75rem; }
+.bh-money { margin-inline-start: auto; font-weight: 800; font-size: .9rem; }
+.bh-money.pos { color: var(--green); }
+.bh-money.neg { color: #c65b5b; }
+.bh-foot {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  margin-top: 6px;
+  font-size: .76rem;
+  color: var(--muted);
+  flex-wrap: wrap;
+}
+.bh-row.won .bh-foot { color: #1d7a3d; }
+
+/* --- מובייל: הכול קטן, צפוף וקריא --- */
+@media (max-width: 700px) {
+  .page { padding: 10px 10px 28px; }
+
+  /* תפריט עליון נמוך יותר */
+  .topnav-inner { padding: 6px 8px; gap: 6px; }
+  .brand-ball { font-size: 1.1rem; }
+  .brand-name { font-size: .95rem; }
+  .nav-game { padding: 5px 7px; min-height: 46px; }
+  .nav-emoji { font-size: 1rem; }
+  .nav-name { font-size: .78rem; }
+
+  /* שלוש הלשוניות */
+  .view-switch { gap: 5px; }
+  .sw-btn { padding: 8px 6px; font-size: .82rem; }
+
+  /* כרטיס המשחק */
+  .play-card { padding: 12px; border-radius: 14px; }
+  .play-title { font-size: 1.05rem; }
+  .play-sub { font-size: .76rem; }
+  .price-tag { padding: 7px 10px; }
+  .price-num { font-size: 1.15rem; }
+  .price-note, .price-tables { font-size: .68rem; }
+  .prize-hint { font-size: .74rem; margin-top: 8px; }
+
+  /* בוחר סוג הטופס — רשת 2×2 קומפקטית */
+  .variant-picker {
+    display: grid !important;
+    grid-template-columns: 1fr 1fr;
+    gap: 6px;
+    width: 100%;
+  }
+  .variant-btn { min-height: 58px; padding: 7px 6px; border-radius: 10px; }
+  .v-label { font-size: .8rem; }
+  .v-price { font-size: .95rem; }
+  .v-hint { font-size: .62rem; }
+
+  .fill-btn { padding: 12px 14px; font-size: 1rem; }
+  .name-input { padding: 9px 11px; font-size: .88rem; }
+
+  /* קופסאות כסף — ארבע בשורה, קטנות */
+  .money-row { display: grid; grid-template-columns: repeat(4, 1fr); gap: 5px; }
+  .money-box { padding: 6px 4px; border-radius: 9px; }
+  .mb-label { font-size: .62rem; }
+  .mb-val { font-size: .82rem; }
+  .money-box.big .mb-val { font-size: .92rem; }
+
+  /* בלוקים וכותרות */
+  .card-block { padding: 11px; border-radius: 13px; }
+  .block-title { font-size: .95rem; margin-bottom: 8px; }
+  .block-note { font-size: .7rem; }
+  .ai-explain { font-size: .78rem; padding: 8px 10px; }
+
+  /* אני מול המוח */
+  .vs-who { font-size: .85rem; }
+  .vs-net { font-size: 1.15rem; }
+  .vs-detail { font-size: .68rem; }
+  .vs-explain { font-size: .68rem; }
+
+  /* כרטיסים בהגרלה */
+  .tiles { grid-template-columns: 1fr 1fr; gap: 7px; }
+  .tile { padding: 8px; border-radius: 10px; }
+  .tile-name { font-size: .74rem; }
+  .tile-foot { font-size: .66rem; }
+
+  /* היסטוריית הגרלות */
+  .draw-head { padding: 8px 9px; gap: 6px; }
+  .draw-id { font-size: .78rem; }
+  .draw-date { font-size: .68rem; }
+  .draw-count { font-size: .68rem; }
+
+  /* המוח */
+  .brain-pick { padding: 7px 9px; gap: 4px; }
+  .bp-draw { font-size: .72rem; }
+  .bp-res { font-size: .72rem; }
+  .brain-more { font-size: .82rem; padding: 10px; }
+  .bh-draw { font-size: .82rem; }
+
+  /* טבלאות */
+  .score-table th, .score-table td { padding: 6px 7px; font-size: .74rem; }
+  .pod { padding: 8px 6px; }
+  .pod-name { font-size: .78rem; }
+  .pod-net { font-size: .92rem; }
+  .pod-detail, .pod-best { font-size: .64rem; }
+}
+
+/* מסכים צרים במיוחד */
+@media (max-width: 380px) {
+  .money-row { grid-template-columns: repeat(2, 1fr); }
+  .tiles { grid-template-columns: 1fr; }
+}

@@ -87,6 +87,7 @@ export async function buildState({ store, drawsByGame, nextInfo, game, clientId 
     game,
     price: GAMES[game].price,
     priceNote: GAMES[game].priceNote,
+    priceOfficial: GAMES[game].priceOfficial || null,
     prizesExact: GAMES[game].prizesExact,
     drawId,
     counts,
@@ -159,6 +160,61 @@ function publicStats(s) {
     bestGame: s.bestGame || null,
     isAi: s.clientId === AI_CLIENT_ID,
     clientId: s.clientId === AI_CLIENT_ID ? AI_CLIENT_ID : undefined
+  };
+}
+
+// ההיסטוריה המלאה של המוח: כל כרטיס שהוא מילא אי-פעם, עם תוצאה וכסף.
+// שאילתה אחת קטנה (הכרטיסים של לקוח יחיד) — לא נוגעת בשאר הטבלה.
+export async function buildBrainHistory({ store, drawsByGame, game }) {
+  const raw = await store.picksByClient(AI_CLIENT_ID);
+  const annotated = annotatePicks(raw, drawsByGame);
+
+  // סיכום כולל על פני כל המשחקים
+  const board = buildScoreboard(annotated);
+  const overall = board.length ? board[0] : null;
+
+  const byGame = {};
+  for (const key of GAME_KEYS) {
+    const list = annotated.filter((p) => p.game === key && p.status !== 'pending');
+    const pending = annotated.filter((p) => p.game === key && p.status === 'pending').length;
+    byGame[key] = {
+      tickets: list.length + pending,
+      pending,
+      spent: annotated.filter((p) => p.game === key).reduce((s, p) => s + p.cost, 0),
+      won: list.reduce((s, p) => s + p.prize, 0),
+      wins: list.filter((p) => p.prize > 0).length
+    };
+    byGame[key].net = byGame[key].won - byGame[key].spent;
+  }
+
+  const picks = annotated
+    .filter((p) => p.game === game)
+    .sort((a, b) => b.drawId - a.drawId)
+    .map((p) => ({
+      ...publicPick(p),
+      drawNumbers: p.drawNumbers || null,
+      drawStrong: p.drawStrong ?? null,
+      drawDate: p.drawDate || null
+    }));
+
+  return {
+    game,
+    name: AI_NAME,
+    overall: overall
+      ? {
+          tickets: overall.tickets,
+          pending: overall.pending,
+          spent: Math.round(overall.spent * 100) / 100,
+          won: Math.round(overall.won * 100) / 100,
+          net: Math.round(overall.net * 100) / 100,
+          wins: overall.wins,
+          bestPrize: overall.bestPrize,
+          bestLabel: overall.bestLabel,
+          bestGame: overall.bestGame
+        }
+      : null,
+    byGame,
+    picks
   };
 }
 

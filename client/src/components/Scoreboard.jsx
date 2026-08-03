@@ -11,13 +11,13 @@ function StatBox({ label, value, tone }) {
 }
 
 // אני מול המוח — ההשוואה המרכזית של האתר
-export function Versus({ me, ai }) {
+export function Versus({ me, ai, onOpenBrain }) {
   const meNet = me ? me.net : 0;
   const aiNet = ai ? ai.net : 0;
   const leader = !me || me.tickets === 0 ? null : meNet > aiNet ? 'me' : aiNet > meNet ? 'ai' : 'tie';
 
   return (
-    <section className="versus">
+    <section className="versus" onClick={onOpenBrain} role={onOpenBrain ? 'button' : undefined}>
       <div className={'vs-side' + (leader === 'me' ? ' winning' : '')}>
         <span className="vs-who">🙋 אתה</span>
         {me && me.tickets > 0 ? (
@@ -52,6 +52,7 @@ export function Versus({ me, ai }) {
           <span className="vs-detail">המוח מתכונן...</span>
         )}
       </div>
+      <span className="vs-explain">🧠 המוח = מחשב שממלא כרטיס אקראי בכל הגרלה · המספר = הרווח/ההפסד עד עכשיו</span>
     </section>
   );
 }
