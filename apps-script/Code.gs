@@ -1,40 +1,29 @@
 /**
- * לוטי לוט — הבוט, גרסת Google Apps Script
+ * לוטי לוט — הבוט, גרסה 2: רץ רק סביב שעות ההגרלות.
  *
- * למה כאן ולא בגיטהאב: מפעל הפיס חוסם שרתי ענן של אמזון (Netlify) ושל מיקרוסופט
- * (GitHub Actions) ומחזיר להם HTTP 403. שרתי גוגל כן עוברים — ו-Apps Script רץ
- * על התשתית של גוגל, בחינם, בלי כרטיס אשראי.
+ * הטריגר בגוגל עדיין מעיר את הסקריפט כל 15 דקות, אבל הקוד בודק קודם
+ * אם אנחנו בתוך "חלון הגרלה" (משעת ההגרלה ועד 75 דקות אחריה). אם לא —
+ * הוא יוצא מיד, בלי שום פנייה לרשת. ככה אין עדכונים מיותרים בלילה
+ * ובשעות המתות, ובכל זאת שום תוצאה לא מתפספסת.
  *
- * מה הוא עושה כל הרצה:
- *   1. מושך מהפיס את קובץ התוצאות של כל משחק (קידוד windows-1255)
- *   2. שומר רק את השורות האחרונות — הקבצים המלאים הם עד 1.4MB
- *   3. מושך את מועד ההגרלה הבאה לכל משחק
- *   4. דוחף הכול לגיטהאב לקובץ pais-raw.json
- * האתר קורא את הקובץ הזה ישירות מגיטהאב ומפענח אותו בעצמו — בלי בנייה מחדש.
+ * פעם ביום (05:30–06:45) יש סנכרון מלא של כל המשחקים — רשת ביטחון
+ * למקרה של חג, שינוי בלוח, או חלון שנכשל.
  *
- * ===== התקנה =====
- * 1. script.google.com  ->  New project  ->  מדביקים את הקובץ הזה
- * 2. Project Settings -> Script Properties -> Add script property:
- *       GITHUB_TOKEN = הטוקן מגיטהאב (ראה למטה)
- *    את הטוקן שומרים *רק* כאן. לא בקוד, לא בצ'אט, לא בגיט.
- * 3. מריצים פעם אחת את הפונקציה testPais  ->  View -> Logs
- *    אם כתוב "הפיס עונה" — מצוין, ממשיכים. אם 403 — הפיס חוסם גם את גוגל.
- * 4. מריצים פעם אחת את updateLottery (יבקש הרשאות — מאשרים)
- * 5. Triggers (השעון בצד) -> Add Trigger:
- *       Function: updateLottery | Event source: Time-driven | Minutes timer: כל 15 דקות
- *
- * ===== הטוקן =====
- * github.com -> Settings -> Developer settings -> Personal access tokens
- *   -> Fine-grained tokens -> Generate new token
- *   Repository access: Only select repositories -> lotilot
- *   Permissions -> Repository permissions -> Contents: Read and write
+ * לוח ההגרלות (שעון ישראל, מהאתר הרשמי):
+ *   לוטו: שלישי ושבת 23:15 · צ'אנס: א'-ה' 9,11,13,15,17,19,21, שישי 10,12,14,
+ *   מוצ"ש 21:30+23:30 · 777: א'-ה' 13:30+19:30, שישי 13:30, מוצ"ש 21:30 ·
+ *   123: א'-ה' 18:00, שישי 13:00, מוצ"ש 21:30
  */
 
 var REPO = 'Eladshi1326/lotilot';
 var BRANCH = 'main';
 var OUT_PATH = 'pais-raw.json';
+var TZ = 'Asia/Jerusalem';
 
-var KEEP_LINES = 200; // כמה שורות לשמור מכל קובץ תוצאות (הקובץ ממוין מהחדש לישן)
+var KEEP_LINES = 200;     // כמה שורות תוצאות לשמור לכל משחק
+var WINDOW_MIN = 75;      // כמה דקות אחרי שעת ההגרלה עוד מנסים למשוך
+var DAILY_SYNC = '05:30'; // סנכרון מלא יומי (עד 06:45)
+
 var UA = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 ' +
          '(KHTML, like Gecko) Chrome/126.0 Safari/537.36';
 
@@ -46,14 +35,68 @@ var GAMES = {
 };
 var GAME_KEYS = ['lotto', 'chance', '777', '123'];
 
-// ---------------------------------------------------------------- כלי עזר
+// לוח שעות לפי יום בשבוע. מפתח היום בפורמט ISO: 1=שני ... 5=שישי, 6=שבת, 7=ראשון
+var WEEKDAY_CHANCE = ['09:00', '11:00', '13:00', '15:00', '17:00', '19:00', '21:00'];
+var SCHEDULE = {
+  lotto:  { 2: ['23:15'], 6: ['23:15'] }, // שלישי ושבת
+  chance: {
+    7: WEEKDAY_CHANCE, 1: WEEKDAY_CHANCE, 2: WEEKDAY_CHANCE, 3: WEEKDAY_CHANCE, 4: WEEKDAY_CHANCE,
+    5: ['10:00', '12:00', '14:00'],
+    6: ['21:30', '23:30']
+  },
+  '777': {
+    7: ['13:30', '19:30'], 1: ['13:30', '19:30'], 2: ['13:30', '19:30'], 3: ['13:30', '19:30'], 4: ['13:30', '19:30'],
+    5: ['13:30'],
+    6: ['21:30']
+  },
+  '123': {
+    7: ['18:00'], 1: ['18:00'], 2: ['18:00'], 3: ['18:00'], 4: ['18:00'],
+    5: ['13:00'],
+    6: ['21:30']
+  }
+};
+
+// ---------------------------------------------------------------- חלונות זמן
+
+function minutesOf_(hhmm) {
+  var p = hhmm.split(':');
+  return Number(p[0]) * 60 + Number(p[1]);
+}
+
+// אילו משחקים נמצאים עכשיו בתוך חלון הגרלה. בודק גם חלונות שנפתחו אתמול
+// ונמשכים אחרי חצות (כמו לוטו 23:15 שחלונו נגמר ב-00:30).
+function activeGames_(now) {
+  var isoDay = Number(Utilities.formatDate(now, TZ, 'u')); // 1=שני ... 7=ראשון
+  var yesterday = new Date(now.getTime() - 24 * 3600 * 1000);
+  var isoYesterday = Number(Utilities.formatDate(yesterday, TZ, 'u'));
+  var nowMin = minutesOf_(Utilities.formatDate(now, TZ, 'HH:mm'));
+
+  // סנכרון יומי מלא — כל המשחקים
+  var syncStart = minutesOf_(DAILY_SYNC);
+  if (nowMin - syncStart >= 0 && nowMin - syncStart <= WINDOW_MIN) {
+    return { games: GAME_KEYS.slice(), reason: 'סנכרון יומי מלא' };
+  }
+
+  var active = [];
+  for (var i = 0; i < GAME_KEYS.length; i++) {
+    var key = GAME_KEYS[i];
+    var times = (SCHEDULE[key][isoDay] || []).map(minutesOf_)
+      .concat((SCHEDULE[key][isoYesterday] || []).map(function (t) { return minutesOf_(t) - 1440; }));
+    for (var j = 0; j < times.length; j++) {
+      var since = nowMin - times[j];
+      if (since >= 0 && since <= WINDOW_MIN) { active.push(key); break; }
+    }
+  }
+  return { games: active, reason: active.join(', ') };
+}
+
+// ---------------------------------------------------------------- הפיס
 
 function fetchPais_(url, charset) {
   var res = UrlFetchApp.fetch(url, {
     method: 'get',
     muteHttpExceptions: true,
     followRedirects: true,
-    validateHttpsCertificates: true,
     headers: {
       'User-Agent': UA,
       'Accept': 'text/csv,text/html,application/json,*/*',
@@ -66,10 +109,8 @@ function fetchPais_(url, charset) {
   return res.getBlob().getDataAsString(charset || 'windows-1255');
 }
 
-// הקובץ מהפיס ממוין מההגרלה החדשה לישנה, אז השורות הראשונות הן העדכניות
 function headLines_(text, n) {
-  var lines = text.replace(/^﻿/, '').split(/\r?\n/);
-  return lines.slice(0, n).join('\n');
+  return text.replace(/^﻿/, '').split(/\r?\n/).slice(0, n).join('\n');
 }
 
 // ---------------------------------------------------------------- גיטהאב
@@ -99,20 +140,27 @@ function githubApi_(path, method, payload) {
   return { code: res.getResponseCode(), body: res.getContentText() };
 }
 
-function currentSha_() {
+// הקובץ הנוכחי מגיטהאב — מעדכנים רק את המשחקים שנמשכו ושומרים את השאר
+function currentFile_() {
   var r = githubApi_('/contents/' + OUT_PATH + '?ref=' + BRANCH, 'get');
-  if (r.code === 404) return null;          // הקובץ עוד לא קיים — ניצור אותו
+  if (r.code === 404) return { sha: null, data: null };
   if (r.code !== 200) throw new Error('GitHub GET ' + r.code + ': ' + r.body.slice(0, 200));
-  return JSON.parse(r.body).sha;
+  var body = JSON.parse(r.body);
+  var data = null;
+  try {
+    data = JSON.parse(
+      Utilities.newBlob(Utilities.base64Decode(body.content.replace(/\n/g, ''))).getDataAsString('UTF-8')
+    );
+  } catch (e) { /* קובץ פגום — נבנה חדש */ }
+  return { sha: body.sha, data: data };
 }
 
-function commitFile_(jsonString, message) {
+function commitFile_(sha, jsonString, message) {
   var body = {
     message: message,
     content: Utilities.base64Encode(jsonString, Utilities.Charset.UTF_8),
     branch: BRANCH
   };
-  var sha = currentSha_();
   if (sha) body.sha = sha;
   var r = githubApi_('/contents/' + OUT_PATH, 'put', body);
   if (r.code !== 200 && r.code !== 201) {
@@ -123,11 +171,28 @@ function commitFile_(jsonString, message) {
 // ---------------------------------------------------------------- הבוט
 
 function updateLottery() {
-  var out = { updatedAt: new Date().toISOString(), source: 'apps-script', csv: {}, next: {} };
+  var now = new Date();
+  var win = activeGames_(now);
+
+  if (win.games.length === 0) {
+    Logger.log('🌙 מחוץ לחלונות ההגרלות (' + Utilities.formatDate(now, TZ, 'EEE HH:mm') +
+               ' שעון ישראל) — אין מה למשוך, יוצא בשקט.');
+    return; // בלי לזרוק שגיאה — שלא יגיעו מיילים על "כשל"
+  }
+
+  Logger.log('⏰ חלון פעיל: ' + win.reason);
+
+  var current = currentFile_();
+  var out = current.data || { csv: {}, next: {} };
+  if (!out.csv) out.csv = {};
+  if (!out.next) out.next = {};
+  out.updatedAt = now.toISOString();
+  out.source = 'apps-script';
+
   var ok = [];
   var bad = [];
 
-  GAME_KEYS.forEach(function (key) {
+  win.games.forEach(function (key) {
     try {
       var text = fetchPais_(GAMES[key].csv);
       var trimmed = headLines_(text, KEEP_LINES);
@@ -137,14 +202,11 @@ function updateLottery() {
     } catch (e) {
       bad.push(key + ' (תוצאות): ' + e.message);
     }
-
     try {
       var raw = fetchPais_(
-        'https://www.pais.co.il/include/getNextLotteryDate.ashx?type=' + GAMES[key].nextType,
-        'UTF-8'
+        'https://www.pais.co.il/include/getNextLotteryDate.ashx?type=' + GAMES[key].nextType, 'UTF-8'
       );
-      var arr = JSON.parse(raw);
-      var it = arr && arr.length ? arr[0] : null;
+      var it = JSON.parse(raw)[0];
       if (it && it.displayDate) {
         out.next[key] = {
           date: it.displayDate,
@@ -160,29 +222,49 @@ function updateLottery() {
   });
 
   if (ok.length === 0) {
-    Logger.log('❌ לא התקבל שום מידע מהפיס. פירוט:\n' + bad.join('\n'));
-    throw new Error('הפיס לא ענה לאף בקשה — ' + bad.join(' | '));
+    throw new Error('הפיס לא ענה לאף בקשה בחלון פעיל — ' + bad.join(' | '));
   }
 
   commitFile_(
+    current.sha,
     JSON.stringify(out, null, 2),
     'עדכון נתוני הפיס — ' + ok.join(', ') + ' [skip ci]'
   );
-
-  Logger.log('✅ עודכן בגיטהאב. משחקים שנמשכו: ' + ok.join(', ') +
+  Logger.log('✅ עודכן בגיטהאב: ' + ok.join(', ') +
              (bad.length ? '\n⚠️ בעיות: ' + bad.join('\n') : ''));
 }
 
 // ---------------------------------------------------------------- בדיקות
 
-/** מריצים פעם אחת כדי לבדוק אם הפיס בכלל עונה לשרתי גוגל */
+/** מצב החלונות עכשיו + מתי החלון הבא — בלי לפנות לרשת בכלל */
+function testSchedule() {
+  var now = new Date();
+  var win = activeGames_(now);
+  var lines = [
+    'עכשיו (שעון ישראל): ' + Utilities.formatDate(now, TZ, 'EEEE HH:mm'),
+    win.games.length
+      ? '⏰ חלון פעיל — ימשוך: ' + win.games.join(', ')
+      : '🌙 מחוץ לחלונות — הרצה עכשיו יוצאת בלי לעשות כלום'
+  ];
+  for (var m = 5; m <= 36 * 60; m += 5) {
+    var t = new Date(now.getTime() + m * 60000);
+    var w = activeGames_(t);
+    if (w.games.length) {
+      lines.push('החלון הבא: ' + Utilities.formatDate(t, TZ, 'EEEE HH:mm') + ' — ' + w.games.join(', '));
+      break;
+    }
+  }
+  Logger.log(lines.join('\n'));
+  return lines.join('\n');
+}
+
+/** בודק שהפיס עונה לשרתי גוגל */
 function testPais() {
   var lines = [];
   GAME_KEYS.forEach(function (key) {
     try {
       var t = fetchPais_(GAMES[key].csv);
-      var first = t.split(/\r?\n/)[1] || '';
-      lines.push('✅ ' + key + ' — הפיס עונה. שורה אחרונה שהוגרלה: ' + first.slice(0, 60));
+      lines.push('✅ ' + key + ' — הפיס עונה: ' + (t.split(/\r?\n/)[1] || '').slice(0, 50));
     } catch (e) {
       lines.push('❌ ' + key + ' — ' + e.message);
     }
@@ -191,7 +273,7 @@ function testPais() {
   return lines.join('\n');
 }
 
-/** בודק שהטוקן של גיטהאב תקין ושיש לו הרשאת כתיבה */
+/** בודק שהטוקן של גיטהאב תקין */
 function testGithub() {
   var r = githubApi_('', 'get');
   if (r.code !== 200) {
@@ -201,5 +283,5 @@ function testGithub() {
   var repo = JSON.parse(r.body);
   var canWrite = repo.permissions && repo.permissions.push;
   Logger.log((canWrite ? '✅' : '⚠️') + ' מחובר ל-' + repo.full_name +
-             ' | הרשאת כתיבה: ' + (canWrite ? 'יש' : 'אין — צריך Contents: Read and write'));
+             ' | הרשאת כתיבה: ' + (canWrite ? 'יש' : 'אין'));
 }

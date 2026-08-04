@@ -60,12 +60,14 @@ export function Versus({ me, ai, onOpenBrain }) {
 // טבלת כל המשתתפים
 const MEDALS = ['🥇', '🥈', '🥉'];
 
-export default function Scoreboard({ rows, myName }) {
+export default function Scoreboard({ rows, myName, bare }) {
   if (!rows || rows.length === 0) return null;
   const top = rows.slice(0, 3);
+  const Wrap = bare ? React.Fragment : 'section';
+  const wrapProps = bare ? {} : { className: 'card-block' };
   return (
-    <section className="card-block">
-      <h3 className="block-title">🏆 מי מוביל</h3>
+    <Wrap {...wrapProps}>
+      {bare ? null : <h3 className="block-title">🏆 מי מוביל</h3>}
 
       {top.length > 1 ? (
         <div className="podium">
@@ -124,7 +126,7 @@ export default function Scoreboard({ rows, myName }) {
       <p className="block-note">
         המוח בוחר מספרים אקראיים בדיוק כמו כולם — אין לו שום יתרון. זה בדיוק מה שהניסוי בודק 😉
       </p>
-    </section>
+    </Wrap>
   );
 }
 

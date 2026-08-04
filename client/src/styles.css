@@ -935,3 +935,88 @@ body {
   .money-row { grid-template-columns: repeat(2, 1fr); }
   .tiles { grid-template-columns: 1fr; }
 }
+
+/* ═══════════════════ מובייל 3.0 — עמוד קצר ושקט ═══════════════════ */
+
+/* בלוקים מתקפלים */
+.fold { padding: 0 !important; overflow: hidden; }
+.fold-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  width: 100%;
+  padding: 13px 14px;
+  background: none;
+  border: 0;
+  cursor: pointer;
+  font-family: inherit;
+  text-align: right;
+}
+.fold-title {
+  font-size: 1rem;
+  font-weight: 800;
+  color: var(--ink);
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.fold-arrow { color: var(--muted); font-size: .75rem; }
+.fold-body { padding: 0 14px 14px; }
+.fold.brain .fold-head { background: #f8f5ff; }
+
+/* סוגי הטפסים — מוצגים גם אחרי שמילאת (רק להצגה) */
+.variant-strip {
+  margin-top: 10px;
+  padding: 9px 11px;
+  background: #f7f9fd;
+  border: 1px dashed var(--line);
+  border-radius: 10px;
+}
+.strip-label {
+  display: block;
+  font-size: .72rem;
+  color: var(--muted);
+  margin-bottom: 6px;
+}
+.strip-chips { display: flex; flex-wrap: wrap; gap: 5px; }
+.vs-chip {
+  font-size: .74rem;
+  font-weight: 700;
+  padding: 4px 9px;
+  border-radius: 20px;
+  background: var(--card);
+  border: 1.5px solid var(--line);
+  color: var(--ink);
+}
+.vs-chip.cur { border-color: var(--accent); background: #fff6f7; }
+
+@media (max-width: 700px) {
+  /* ספירה לאחור — שורה צנועה במקום קופסה ענקית */
+  .countdown { padding: 8px 12px; border-radius: 12px; gap: 4px; }
+  .cd-label { font-size: .72rem; }
+  .cd-clock { gap: 4px; }
+  .cd-unit b { font-size: 1rem; }
+  .cd-unit small { font-size: .55rem; }
+  .cd-sep { font-size: .9rem; }
+  .cd-prize { font-size: .72rem; }
+
+  /* שעות ההגרלה בתוך הכרטיס — צ'יפים קטנים */
+  .times-row { gap: 4px; }
+  .time-chip { font-size: .64rem; padding: 2px 7px; }
+  .times-label, .times-note { font-size: .66rem; }
+
+  .fold-head { padding: 11px 12px; }
+  .fold-title { font-size: .92rem; }
+  .fold-body { padding: 0 11px 11px; }
+
+  .variant-strip { padding: 8px 9px; }
+  .vs-chip { font-size: .7rem; padding: 3px 8px; }
+
+  /* "אני מול המוח" — פס אחד קומפקטי */
+  .versus { padding: 10px; gap: 6px; }
+}
+
+/* בלוטו יש עד 10 טבלאות בכרטיס — במובייל עמודה אחת כדי שהכדורים ינשמו */
+@media (max-width: 700px) {
+  .game-view.g-lotto .tiles { grid-template-columns: 1fr; }
+}

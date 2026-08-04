@@ -7,6 +7,8 @@ import Scoreboard, { Versus } from './Scoreboard.jsx';
 const SPIN_MS = 1600;
 const SPIN_TICK = 90;
 
+const chosenOf = (variants, key) => variants.find((v) => v.key === key) || null;
+
 function timeStr(ts) {
   return new Date(ts).toLocaleString('he-IL', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' });
 }
@@ -111,13 +113,28 @@ function DrawRow({ row, game, myPickId }) {
   );
 }
 
-// המוח — כרטיס קצר וברור, עם כפתור לכל ההיסטוריה
+// בלוק מתקפל: במובייל סגור כברירת מחדל — העמוד קצר ושקט, פותחים רק מה שמעניין
+function Fold({ title, children, startOpen, extraClass }) {
+  const [open, setOpen] = useState(() =>
+    startOpen !== undefined ? startOpen : typeof window !== 'undefined' && window.innerWidth > 700
+  );
+  return (
+    <section className={'card-block fold' + (open ? ' is-open' : '') + (extraClass ? ' ' + extraClass : '')}>
+      <button className="fold-head" onClick={() => setOpen(!open)} type="button">
+        <span className="fold-title">{title}</span>
+        <span className="fold-arrow">{open ? '▲' : '▼'}</span>
+      </button>
+      {open ? <div className="fold-body">{children}</div> : null}
+    </section>
+  );
+}
+
+// המוח — תוכן הפאנל (העטיפה המתקפלת נמצאת בהרכבה הראשית)
 function BrainPanel({ ai, aiPicks, game, onOpenBrain }) {
   if (!ai) return null;
   const picks = (aiPicks || []).slice(0, 3);
   return (
-    <section className="card-block brain">
-      <h3 className="block-title">🧠 המוח <span className="title-sub">שחקן המחשב</span></h3>
+    <>
       <p className="ai-explain">{AI_EXPLAIN}</p>
       <div className="money-row">
         <div className="money-box"><span className="mb-label">כרטיסים</span><span className="mb-val">{ai.tickets}</span></div>
@@ -148,17 +165,16 @@ function BrainPanel({ ai, aiPicks, game, onOpenBrain }) {
       <button className="brain-more" onClick={onOpenBrain} type="button">
         🧠 לכל ההיסטוריה של המוח — כל כרטיס וכל שקל ←
       </button>
-    </section>
+    </>
   );
 }
 
-// המאזן שלי — כמה זכיתי, בכמה זכיות, וכמה יצא בסך הכל
+// המאזן שלי — תוכן בלבד
 function MyMoney({ me, myWins, gameName }) {
   if (!me || me.tickets === 0) return null;
   const wins = (myWins || []).slice(0, 8);
   return (
-    <section className="card-block">
-      <h3 className="block-title">🧾 המאזן שלי</h3>
+    <>
       <div className="money-row">
         <div className="money-box"><span className="mb-label">כרטיסים</span><span className="mb-val">{me.tickets}</span></div>
         <div className="money-box"><span className="mb-label">הוצאתי</span><span className="mb-val neg">{formatMoney(me.spent)}</span></div>
@@ -187,7 +203,7 @@ function MyMoney({ me, myWins, gameName }) {
       ) : (
         <p className="dim-note">עדיין לא זכית — {gameName} עוד לפנינו 🤞</p>
       )}
-    </section>
+    </>
   );
 }
 
@@ -296,11 +312,24 @@ export default function GameView({ game, state, nextInfo, now, clientId, onSubmi
               </p>
               <FormView game={game} pick={myPick} revealed={justWon} />
               <p className="dim-note">
-                {myPick.variant === 'double' ? 'דאבל לוטו · ' : ''}שילמת {formatMoney(myPick.cost)} · {myPick.status === 'pending'
+                {variants && chosenOf(variants, myPick.variant) ? chosenOf(variants, myPick.variant).label + ' · ' : ''}
+                שילמת {formatMoney(myPick.cost)} · {myPick.status === 'pending'
                   ? 'מחכים לתוצאות'
                   : myPick.prize > 0 ? '🎉 זכית ' + formatMoney(myPick.prize) : 'הפעם לא זכית'}
                 {perDay > 1 ? ' · כרטיס נוסף ייפתח בהגרלה הבאה' : ''}
               </p>
+              {variants ? (
+                <div className="variant-strip">
+                  <span className="strip-label">סוגי הטפסים במשחק (בוחרים לפני המילוי):</span>
+                  <span className="strip-chips">
+                    {variants.map((v) => (
+                      <span key={v.key} className={'vs-chip' + (myPick.variant === v.key ? ' cur' : '')}>
+                        {v.label} · {formatMoney(v.price)}
+                      </span>
+                    ))}
+                  </span>
+                </div>
+              ) : null}
             </>
           ) : (
             <>
@@ -342,14 +371,11 @@ export default function GameView({ game, state, nextInfo, now, clientId, onSubmi
       </section>
 
       {state ? <Versus me={state.me} ai={state.ai} onOpenBrain={onOpenBrain} /> : null}
-      {state ? <MyMoney me={state.me} myWins={state.myWins} gameName={ui.name} /> : null}
-      {state ? <BrainPanel ai={state.ai} aiPicks={state.aiPicks} game={game} onOpenBrain={onOpenBrain} /> : null}
 
-      <section className="card-block">
-        <h3 className="block-title">
-          🎫 הכרטיסים להגרלה {state ? state.drawId : ''}
-          <span className="live-dot" title="מתעדכן חי"></span>
-        </h3>
+      <Fold
+        title={<>🎫 הכרטיסים להגרלה {state ? state.drawId : ''} <span className="live-dot" title="מתעדכן חי"></span></>}
+        startOpen={true}
+      >
         {state && state.currentPicks.length > 0 ? (
           <div className="tiles">
             {state.currentPicks.map((p) => (
@@ -359,10 +385,21 @@ export default function GameView({ game, state, nextInfo, now, clientId, onSubmi
         ) : (
           <p className="dim-note center">עדיין אין כרטיסים להגרלה הזו — תהיה הראשון! 🚀</p>
         )}
-      </section>
+      </Fold>
 
-      <section className="card-block">
-        <h3 className="block-title">📜 הגרלות אחרונות ומי זכה</h3>
+      {state && state.me && state.me.tickets > 0 ? (
+        <Fold title="🧾 המאזן שלי">
+          <MyMoney me={state.me} myWins={state.myWins} gameName={ui.name} />
+        </Fold>
+      ) : null}
+
+      {state && state.ai ? (
+        <Fold title={<>🧠 המוח <span className="title-sub">שחקן המחשב</span></>} extraClass="brain">
+          <BrainPanel ai={state.ai} aiPicks={state.aiPicks} game={game} onOpenBrain={onOpenBrain} />
+        </Fold>
+      ) : null}
+
+      <Fold title="📜 הגרלות אחרונות ומי זכה">
         {state && state.timeline.length > 0 ? (
           <div className="draws">
             {state.timeline.map((row) => (
@@ -373,9 +410,13 @@ export default function GameView({ game, state, nextInfo, now, clientId, onSubmi
           <p className="dim-note center">טוען הגרלות...</p>
         )}
         <p className="block-note">לחיצה על הגרלה פותחת את הכרטיסים שלה ואת טבלת הזכיות הרשמית של מפעל הפיס.</p>
-      </section>
+      </Fold>
 
-      {state ? <Scoreboard rows={state.scoreboard} myName={state.me ? state.me.name : null} /> : null}
+      {state && state.scoreboard && state.scoreboard.length > 0 ? (
+        <Fold title="🏆 מי מוביל">
+          <Scoreboard rows={state.scoreboard} myName={state.me ? state.me.name : null} bare />
+        </Fold>
+      ) : null}
 
       {state && !state.prizesExact ? (
         <p className="disclaimer">

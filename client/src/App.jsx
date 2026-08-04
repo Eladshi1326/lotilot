@@ -32,10 +32,12 @@ function BotStatus({ updatedAt, botUpdatedAt, now }) {
 
   if (botUpdatedAt) {
     const mins = Math.round((now - new Date(botUpdatedAt).getTime()) / 60000);
-    const stale = mins > 90; // הבוט אמור לרוץ כל רבע שעה
+    // הבוט רץ סביב שעות ההגרלות (ופעם ביום סנכרון מלא), אז גם פער של
+    // כמה שעות תקין. רק מעל יממה — כנראה משהו תקוע.
+    const stale = mins > 26 * 60;
     return (
       <div className={'bot-status' + (stale ? ' stale' : '')}>
-        🤖 הבוט משך תוצאות מהפיס <b>{ago(now - new Date(botUpdatedAt).getTime())}</b>
+        🤖 הבוט משך תוצאות מהפיס <b>{ago(now - new Date(botUpdatedAt).getTime())}</b> · רץ סביב שעות ההגרלות
         {stale ? ' — נראה שהוא תקוע, כדאי לבדוק ב-Apps Script' : ''}
       </div>
     );
