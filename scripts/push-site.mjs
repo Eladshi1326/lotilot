@@ -1,17 +1,25 @@
-// לוטי לוט — עדכון והעלאה בלחיצה אחת. רץ על המחשב, מופעל מ"הרץ אותי.cmd".
+// לוטי לוט — עדכון והעלאה בלחיצה אחת (גרסה 3). רץ על המחשב, מופעל מ"הרץ אותי.cmd".
 //
-// למה הקוד כאן ולא בתוך קובץ ה-cmd עצמו: חלונות שובר קבצי batch שיש בהם
-// עברית (בעיית קידוד ידועה — שורות נחתכות באמצע ומקוטעי טקסט הופכים
-// ל"פקודות"). Node מדפיס עברית בלי שום בעיה, אז קובץ ה-cmd נשאר באנגלית
-// בלבד וכל ההיגיון יושב כאן.
+// מה חדש בגרסה 3:
+//   · מחלץ לבד rebase שנתקע באמצע (כולל שחזור הקומיט שלא הוחל)
+//   · מגן על עצמו: אם ביטול ה-rebase מחזיר גרסה ישנה של הקובץ הזה — הוא כותב
+//     את עצמו מחדש מהזיכרון, כדי שהגרסה הנכונה תישמר בקומיט הבא
+//   · האימות בסוף מזהה מצב תקוע ולא מדווח "הצלחה" בטעות
+//   · pais-raw.json שייך לבוט בגוגל — תמיד נלקח מגיטהאב, אף פעם לא נוצר כאן
 
 import { spawnSync } from 'node:child_process';
-import { existsSync, rmSync } from 'node:fs';
+import { existsSync, rmSync, readFileSync, writeFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
 
-const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
+const VERSION = 3;
+const SELF = fileURLToPath(import.meta.url);
+const SELF_SRC = readFileSync(SELF, 'utf8'); // התוכן שלי, לשחזור אחרי rebase --abort
+
+const ROOT = join(dirname(SELF), '..');
 const LOCK = join(ROOT, '.git', 'index.lock');
+const BOT_FILE = 'pais-raw.json';
+
 const he = (b) => (b ? 'כן' : 'לא');
 const sleep = (ms) => Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms);
 
@@ -22,7 +30,6 @@ let problem = null;
 let remoteHead = null;
 let dirty = '';
 
-// הנעילה של git נשארת תקועה אם תהליך קודם נקטע — מוחקים אותה לפני כל פקודה
 function unlock() {
   try { if (existsSync(LOCK)) rmSync(LOCK, { force: true }); } catch { /* לא נורא */ }
 }
@@ -32,6 +39,7 @@ function git(args, live = false) {
   const r = spawnSync('git', args, {
     cwd: ROOT,
     encoding: 'utf8',
+    env: { ...process.env, GIT_EDITOR: 'true' },
     stdio: live ? ['ignore', 'inherit', 'inherit'] : ['ignore', 'pipe', 'pipe']
   });
   if (r.error && r.error.code === 'ENOENT') throw new Error('git-missing');
@@ -43,16 +51,76 @@ function runScript(name) {
   return r.status === 0;
 }
 
+// אחרי rebase --abort גיט מחזיר את כל הקבצים לגרסה השמורה — כולל אותי.
+// אם זה קרה, כותבים את הגרסה הזו (שכבר רצה מהזיכרון) בחזרה לדיסק.
+function restoreSelf() {
+  try {
+    if (readFileSync(SELF, 'utf8') !== SELF_SRC) {
+      writeFileSync(SELF, SELF_SRC, 'utf8');
+      console.log('        (הקובץ שלי הוחזר לגרסה ישנה — כתבתי את גרסה ' + VERSION + ' בחזרה)');
+    }
+  } catch { /* לא קריטי */ }
+}
+
+// rebase שנקטע באמצע חוסם הכל ומשאיר את גיט "תלוי באוויר" — מבטלים ומתחילים נקי
+function clearStaleGitState() {
+  const gitDir = join(ROOT, '.git');
+  if (existsSync(join(gitDir, 'rebase-merge')) || existsSync(join(gitDir, 'rebase-apply'))) {
+    console.log('        נמצא rebase תקוע מריצה קודמת — מבטל ומתחיל נקי...');
+    if (!git(['rebase', '--abort']).ok) {
+      for (const d of ['rebase-merge', 'rebase-apply']) {
+        try { rmSync(join(gitDir, d), { recursive: true, force: true }); } catch { /* לא נורא */ }
+      }
+      // אם הביטול לא עבד, מוודאים שאנחנו לפחות חזרה על הענף
+      git(['checkout', 'main']);
+    }
+    restoreSelf();
+  }
+  try { rmSync(join(gitDir, 'MERGE_HEAD'), { force: true }); } catch { /* לא נורא */ }
+  // אם משום מה נשארנו במצב "ראש מנותק" — חוזרים לענף בלי לאבד כלום
+  if (!git(['symbolic-ref', '-q', 'HEAD']).ok) {
+    console.log('        גיט היה במצב מנותק — חוזר לענף main...');
+    git(['checkout', 'main']);
+    restoreSelf();
+  }
+}
+
+// משיכה עם rebase; התנגשות על הקובץ של הבוט נפתרת אוטומטית לטובת גיטהאב
+function pullRebase() {
+  let r = git(['pull', '--rebase', 'origin', 'main'], true);
+  for (let i = 0; i < 6 && !r.ok; i++) {
+    const conflicts = git(['diff', '--name-only', '--diff-filter=U']).out
+      .split('\n').map((s) => s.trim()).filter(Boolean);
+    if (conflicts.length > 0 && conflicts.every((f) => f === BOT_FILE)) {
+      console.log('        התנגשות על ' + BOT_FILE + ' — לוקח את הגרסה של הבוט מגיטהאב');
+      git(['checkout', '--ours', '--', BOT_FILE]); // ב-rebase, "ours" = מה שבגיטהאב
+      git(['add', BOT_FILE]);
+      r = git(['rebase', '--continue'], true);
+    } else {
+      break;
+    }
+  }
+  if (!r.ok) { git(['rebase', '--abort']); restoreSelf(); }
+  return r.ok;
+}
+
 console.log('');
 console.log('  ============================================');
-console.log('    לוטי לוט — עדכון והעלאה');
+console.log('    לוטי לוט — עדכון והעלאה (גרסה ' + VERSION + ')');
 console.log('  ============================================');
 console.log('');
 
 try {
+  clearStaleGitState();
+
   console.log('  [1/4] מושך תוצאות עדכניות ממפעל הפיס...');
-  runScript('update-data.mjs');
-  paisOk = runScript('make-pais-raw.mjs') && existsSync(join(ROOT, 'pais-raw.json'));
+  paisOk = runScript('update-data.mjs');
+  // pais-raw.json שייך לבוט — לוקחים את הגרסה שלו מגיטהאב, לא מייצרים מקומית
+  if (git(['fetch', 'origin', 'main']).ok) {
+    if (git(['ls-tree', 'origin/main', '--', BOT_FILE]).out) {
+      git(['checkout', 'origin/main', '--', BOT_FILE]);
+    }
+  }
 
   console.log('  [2/4] שומר את השינויים...');
   let added = false;
@@ -73,22 +141,32 @@ try {
   }
 
   console.log('  [3/4] מעלה לגיטהאב...');
+  // הבוט דוחף לגיטהאב סביב שעות ההגרלות, אז לרוב צריך למשוך קודם
+  pullRebase();
   let p = git(['push', 'origin', 'main'], true);
   if (!p.ok) {
-    console.log('        ההעלאה נכשלה — מושך קודם ואז מנסה שוב...');
-    git(['pull', '--rebase', 'origin', 'main'], true);
-    p = git(['push', 'origin', 'main'], true);
+    console.log('        ההעלאה נכשלה — מושך שוב ומנסה שוב...');
+    if (pullRebase()) p = git(['push', 'origin', 'main'], true);
   }
 
   console.log('  [4/4] בודק שההעלאה באמת הגיעה לגיטהאב...');
-  const localHead = git(['rev-parse', 'HEAD']).out.slice(0, 40);
-  const ls = git(['ls-remote', 'origin', 'main']);
-  remoteHead = ls.ok && ls.out ? ls.out.split(/\s+/)[0] : null;
-  pushOk = Boolean(localHead) && localHead === remoteHead;
-  if (!pushOk && !problem) {
-    problem = remoteHead
-      ? 'מה שאצלך במחשב שונה ממה שבגיטהאב'
-      : 'לא הצלחתי לקרוא מגיטהאב — אולי אין אינטרנט או שגיטהאב מבקש התחברות';
+  const gitDir = join(ROOT, '.git');
+  const midRebase = existsSync(join(gitDir, 'rebase-merge')) || existsSync(join(gitDir, 'rebase-apply'));
+  const onBranch = git(['symbolic-ref', '-q', 'HEAD']).ok;
+  if (midRebase || !onBranch) {
+    // בלי זה, באמצע rebase ההשוואה משווה את הקומיט של גיטהאב לעצמו ומשקרת "הצלחה"
+    pushOk = false;
+    problem = 'גיט נשאר תקוע באמצע מיזוג — תריץ את הקובץ הזה שוב והוא ישחרר את זה';
+  } else {
+    const localHead = git(['rev-parse', 'HEAD']).out.slice(0, 40);
+    const ls = git(['ls-remote', 'origin', 'main']);
+    remoteHead = ls.ok && ls.out ? ls.out.split(/\s+/)[0] : null;
+    pushOk = Boolean(localHead) && localHead === remoteHead;
+    if (!pushOk && !problem) {
+      problem = remoteHead
+        ? 'מה שאצלך במחשב שונה ממה שבגיטהאב'
+        : 'לא הצלחתי לקרוא מגיטהאב — אולי אין אינטרנט או שגיטהאב מבקש התחברות';
+    }
   }
 } catch (e) {
   problem = e.message === 'git-missing'
@@ -101,7 +179,7 @@ try { lastLocal = git(['log', '--oneline', '-1']).out; } catch { /* git חסר *
 
 console.log('');
 console.log('  ------------------------------------------------------------');
-console.log('  דוח לוטי לוט');
+console.log('  דוח לוטי לוט (גרסה ' + VERSION + ')');
 console.log('  ------------------------------------------------------------');
 console.log('  נתונים מהפיס ירדו:  ' + he(paisOk));
 console.log('  השינויים נשמרו:     ' + he(commitOk));
